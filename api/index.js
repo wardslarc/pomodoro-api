@@ -5,21 +5,73 @@ import cors from "cors";
 import dotenv from "dotenv";
 import compression from "compression";
 
-import { authRoutes } from "../src/routes/auth.js";
-import settingsRoutes from "../src/routes/settings.js";
-import sessionsRoutes from "../src/routes/sessions.js";
-import reflectionsRoutes from "../src/routes/reflections.js";
-import usersRoutes from "../src/routes/users.js";
+// Import routes
+import { authRoutes } from "./routes/auth.js";
+import settingsRoutes from "./routes/settings.js";
+import sessionsRoutes from "./routes/sessions.js";
+import reflectionsRoutes from "./routes/reflections.js";
+import usersRoutes from "./routes/users.js";
 
-import { apiLimiter } from "../src/middleware/rateLimit.js";
-import errorHandler from "../src/middleware/errorHandler.js";
-import logger from "../src/utils/logger.js";
+import { apiLimiter } from "./middleware/rateLimit.js";
+import errorHandler from "./middleware/errorHandler.js";
+import logger from "./utils/logger.js";
 
 dotenv.config();
 
 const app = express();
+
+// Serverless-compatible MongoDB connection
 let cachedDb = null;
 
+async function connectToDatabase() {
+  if (cachedDb) {
+    return cachedDb;
+  }
+
+  if (!process.env.MONGODB_URI) {
+    throw new Error("MONGODB_URI environment variable is required");
+  }
+
+  try {
+    // For serverless, we need different connection options
+    const options = {
+      maxPoolSize: 10,
+      serverSelectionTimeoutMS: 10000, // Increased timeout
+      socketTimeoutMS: 45000,
+      bufferCommands: false,
+      bufferMaxEntries: 0,
+    };
+
+    logger.info("Attempting to connect to MongoDB...");
+    const conn = await mongoose.connect(process.env.MONGODB_URI, options);
+    
+    logger.info("MongoDB connected successfully", {
+      database: conn.connection.db?.databaseName || 'unknown',
+      host: conn.connection.host
+    });
+    
+    cachedDb = conn;
+    
+    // Handle connection events
+    mongoose.connection.on('error', (err) => {
+      logger.error('MongoDB connection error:', err);
+      cachedDb = null;
+    });
+    
+    mongoose.connection.on('disconnected', () => {
+      logger.warn('MongoDB disconnected');
+      cachedDb = null;
+    });
+    
+    return conn;
+  } catch (error) {
+    logger.error("MongoDB connection failed:", error);
+    cachedDb = null;
+    throw error;
+  }
+}
+
+// Enhanced CORS configuration
 const allowedOrigins = [
   process.env.FRONTEND_URL,
   "http://localhost:5173",
@@ -28,13 +80,9 @@ const allowedOrigins = [
   "https://www.reflectivepomodoro.com",
 ].filter(Boolean);
 
-// Enhanced CORS configuration - SOLUTION 1
 const corsOptions = {
   origin: (origin, callback) => {
-    // Allow requests with no origin (like mobile apps or curl requests)
-    if (!origin) return callback(null, true);
-    
-    if (allowedOrigins.includes(origin)) {
+    if (!origin || allowedOrigins.includes(origin)) {
       callback(null, true);
     } else {
       logger.warn(`CORS blocked for origin: ${origin}`);
@@ -48,151 +96,72 @@ const corsOptions = {
     "Authorization", 
     "X-Requested-With",
     "Accept",
-    "Origin",
-    "Access-Control-Request-Method",
-    "Access-Control-Request-Headers"
+    "Origin"
   ],
-  exposedHeaders: ["Content-Range", "X-Content-Range"],
-  maxAge: 86400, // 24 hours
-  preflightContinue: false,
-  optionsSuccessStatus: 204
+  maxAge: 86400,
 };
 
-// Handle preflight OPTIONS requests for all routes
-app.options('*', cors(corsOptions));
-
+// Middleware - ORDER MATTERS!
 app.use(helmet({
   crossOriginResourcePolicy: { policy: "cross-origin" },
-  contentSecurityPolicy: {
-    directives: {
-      defaultSrc: ["'self'"],
-      styleSrc: ["'self'", "'unsafe-inline'"],
-      scriptSrc: ["'self'"],
-      imgSrc: ["'self'", "data:", "https:"],
-    },
-  },
+  contentSecurityPolicy: false,
 }));
 
+// CORS before other middleware
+app.options('*', cors(corsOptions));
 app.use(cors(corsOptions));
+
 app.use(compression());
 app.use(express.json({ limit: "10mb" }));
 app.use(express.urlencoded({ extended: true, limit: "10mb" }));
 
 app.use("/api/", apiLimiter);
 
+// Health check that doesn't require DB
 app.get("/api/health", (req, res) => {
   res.status(200).json({
     success: true,
-    message: "Server is healthy",
+    message: "API is running",
     timestamp: new Date().toISOString(),
-    uptime: process.uptime(),
-    memory: process.memoryUsage(),
     database: mongoose.connection.readyState === 1 ? "connected" : "disconnected"
   });
 });
 
+// Database connection middleware - but don't block all requests if DB is down
+app.use(async (req, res, next) => {
+  try {
+    await connectToDatabase();
+    next();
+  } catch (error) {
+    // Don't block the request entirely if DB is down
+    // Some routes might work without DB, or we can handle it in individual routes
+    logger.error("Database connection failed in middleware:", error);
+    // Attach DB status to request for routes to handle
+    req.dbConnected = false;
+    next();
+  }
+});
+
+// Routes
 app.use("/api/auth", authRoutes);
 app.use("/api/settings", settingsRoutes);
 app.use("/api/sessions", sessionsRoutes);
 app.use("/api/reflections", reflectionsRoutes);
 app.use("/api/users", usersRoutes);
 
+// 404 handler
 app.use("*", (req, res) => {
-  logger.warn(`404 - Route not found: ${req.originalUrl}`, {
-    ip: req.ip,
-    method: req.method,
-    userAgent: req.get('User-Agent')
-  });
-  
   res.status(404).json({ 
     success: false, 
     message: "Route not found" 
   });
 });
 
+// Error handler
 app.use(errorHandler);
 
-async function connectDB() {
-  if (cachedDb) {
-    return cachedDb;
-  }
-
-  if (!process.env.MONGODB_URI) {
-    throw new Error("MONGODB_URI environment variable is required");
-  }
-
-  try {
-    const options = {
-      maxPoolSize: 10,
-      serverSelectionTimeoutMS: 5000,
-      socketTimeoutMS: 45000,
-    };
-
-    const conn = await mongoose.connect(process.env.MONGODB_URI, options);
-    
-    logger.info("MongoDB connected successfully", {
-      database: conn.connection.db.databaseName,
-      host: conn.connection.host
-    });
-    
-    cachedDb = conn;
-    
-    mongoose.connection.on('error', (err) => {
-      logger.error('MongoDB connection error:', err);
-    });
-    
-    mongoose.connection.on('disconnected', () => {
-      logger.warn('MongoDB disconnected');
-      cachedDb = null;
-    });
-    
-    return conn;
-  } catch (error) {
-    logger.error("MongoDB connection failed:", error);
-    throw error;
-  }
+// Vercel serverless function handler
+export default async function handler(req, res) {
+  // For serverless, we need to handle the request with our express app
+  return app(req, res);
 }
-
-function setupGracefulShutdown(server) {
-  const shutdown = async (signal) => {
-    logger.info(`Received ${signal}, starting graceful shutdown`);
-    
-    server.close(() => {
-      logger.info('HTTP server closed');
-    });
-    
-    if (mongoose.connection.readyState === 1) {
-      await mongoose.connection.close();
-      logger.info('MongoDB connection closed');
-    }
-    
-    process.exit(0);
-  };
-
-  process.on('SIGTERM', () => shutdown('SIGTERM'));
-  process.on('SIGINT', () => shutdown('SIGINT'));
-}
-
-const startServer = async () => {
-  try {
-    await connectDB();
-    
-    const PORT = process.env.PORT || 5000;
-    const server = app.listen(PORT, () => {
-      logger.info(`Server running on port ${PORT}`);
-    });
-    
-    setupGracefulShutdown(server);
-    
-    return server;
-  } catch (error) {
-    logger.error("Failed to start server:", error);
-    process.exit(1);
-  }
-};
-
-if (import.meta.url === `file://${process.argv[1]}`) {
-  startServer();
-}
-
-export default app;
