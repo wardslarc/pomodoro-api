@@ -2,7 +2,7 @@ import express from 'express';
 import User from '../models/User.js';
 import { validateLogin, validateSignup } from '../middleware/validation.js';
 import { generateToken } from '../utils/auth.js';
-import { send2FACode } from '../utils/emailService.js'; // Changed to emailService.js
+import { send2FACode } from '../utils/emailService.js';
 import logger from '../utils/logger.js';
 
 const router = express.Router();
@@ -175,12 +175,26 @@ router.post('/register', validateSignup, async (req, res, next) => {
   }
 });
 
-// 2FA Verification route (for email codes)
+// 2FA Verification route (for email codes) - UPDATED
 router.post('/verify-2fa', async (req, res, next) => {
   try {
-    const { email, code } = req.body;
+    console.log('🔐 2FA Verification Request:', {
+      body: req.body,
+      headers: req.headers
+    });
 
-    if (!email || !code) {
+    const { email, code, token } = req.body; // Accept both code and token
+
+    // Use either code or token (frontend compatibility)
+    const verificationCode = code || token;
+    
+    console.log('📧 Email:', email);
+    console.log('🔐 Code from request:', code);
+    console.log('🔐 Token from request:', token);
+    console.log('🔐 Using verification code:', verificationCode);
+
+    if (!email || !verificationCode) {
+      console.log('❌ Missing email or verification code');
       return res.status(400).json({
         success: false,
         message: 'Email and verification code are required'
@@ -189,6 +203,7 @@ router.post('/verify-2fa', async (req, res, next) => {
 
     const user = await User.findOne({ email });
     if (!user) {
+      console.log('❌ User not found:', email);
       return res.status(404).json({
         success: false,
         message: 'User not found'
@@ -196,6 +211,7 @@ router.post('/verify-2fa', async (req, res, next) => {
     }
 
     if (!user.is2FAEnabled) {
+      console.log('❌ 2FA not enabled for user:', email);
       return res.status(400).json({
         success: false,
         message: '2FA is not enabled for this account'
@@ -206,25 +222,34 @@ router.post('/verify-2fa', async (req, res, next) => {
     const storedCode = verificationCodes.get(email);
     
     if (!storedCode) {
+      console.log('❌ No stored code found for:', email);
       return res.status(400).json({
         success: false,
         message: 'No verification code found. Please request a new code.'
       });
     }
 
+    console.log('🔐 Stored code:', storedCode.code);
+    console.log('⏰ Code expires at:', new Date(storedCode.expiresAt).toISOString());
+    console.log('⏰ Current time:', new Date().toISOString());
+
     if (Date.now() > storedCode.expiresAt) {
       verificationCodes.delete(email);
+      console.log('❌ Code expired for:', email);
       return res.status(400).json({
         success: false,
         message: 'Verification code has expired. Please request a new code.'
       });
     }
 
-    if (storedCode.code !== code) {
-      // Track failed attempts (optional security feature)
+    if (storedCode.code !== verificationCode) {
+      // Track failed attempts
       const failedAttempts = storedCode.failedAttempts || 0;
+      console.log(`❌ Invalid code attempt ${failedAttempts + 1} for:`, email);
+      
       if (failedAttempts >= 3) {
         verificationCodes.delete(email);
+        console.log('❌ Too many failed attempts for:', email);
         return res.status(400).json({
           success: false,
           message: 'Too many failed attempts. Please request a new code.'
@@ -247,6 +272,8 @@ router.post('/verify-2fa', async (req, res, next) => {
 
     const authToken = generateToken(user._id);
 
+    console.log('✅ 2FA verification successful for:', email);
+
     res.json({
       success: true,
       data: {
@@ -262,6 +289,7 @@ router.post('/verify-2fa', async (req, res, next) => {
       message: '2FA verification successful'
     });
   } catch (error) {
+    console.error('❌ 2FA verification error:', error);
     next(error);
   }
 });
@@ -320,6 +348,164 @@ router.post('/resend-2fa-code', async (req, res, next) => {
       message: 'New verification code sent to your email'
     });
   } catch (error) {
+    next(error);
+  }
+});
+
+// 🔐 2FA Send Code (for frontend compatibility)
+router.post('/2fa/send-code', async (req, res, next) => {
+  try {
+    const { email } = req.body;
+
+    console.log('📧 2FA Send Code request for:', email);
+
+    if (!email) {
+      return res.status(400).json({
+        success: false,
+        message: 'Email is required'
+      });
+    }
+
+    const user = await User.findOne({ email });
+    if (!user) {
+      return res.status(404).json({
+        success: false,
+        message: 'User not found'
+      });
+    }
+
+    if (!user.is2FAEnabled) {
+      return res.status(400).json({
+        success: false,
+        message: '2FA is not enabled for this account'
+      });
+    }
+
+    // Generate verification code
+    const verificationCode = generateVerificationCode();
+    
+    // Store code with expiration (10 minutes)
+    verificationCodes.set(user.email, {
+      code: verificationCode,
+      expiresAt: Date.now() + 10 * 60 * 1000, // 10 minutes
+      userId: user._id.toString()
+    });
+
+    // Send verification code via email
+    try {
+      await send2FACode(user.email, verificationCode);
+      logger.info(`2FA code sent to ${user.email} via /2fa/send-code endpoint`);
+    } catch (emailError) {
+      logger.error('Failed to send 2FA code:', emailError);
+      return res.status(500).json({
+        success: false,
+        message: 'Failed to send verification code. Please try again.'
+      });
+    }
+
+    res.json({
+      success: true,
+      message: 'Verification code sent to your email'
+    });
+  } catch (error) {
+    console.error('❌ 2FA send-code error:', error);
+    next(error);
+  }
+});
+
+// 🔐 2FA Verify (for frontend compatibility)
+router.post('/2fa/verify', async (req, res, next) => {
+  try {
+    console.log('🔐 2FA Verify request (compatibility endpoint):', req.body);
+
+    const { email, code, token } = req.body;
+    const verificationCode = code || token;
+
+    if (!email || !verificationCode) {
+      return res.status(400).json({
+        success: false,
+        message: 'Email and verification code are required'
+      });
+    }
+
+    const user = await User.findOne({ email });
+    if (!user) {
+      return res.status(404).json({
+        success: false,
+        message: 'User not found'
+      });
+    }
+
+    if (!user.is2FAEnabled) {
+      return res.status(400).json({
+        success: false,
+        message: '2FA is not enabled for this account'
+      });
+    }
+
+    // Check if verification code exists and is valid
+    const storedCode = verificationCodes.get(email);
+    
+    if (!storedCode) {
+      return res.status(400).json({
+        success: false,
+        message: 'No verification code found. Please request a new code.'
+      });
+    }
+
+    if (Date.now() > storedCode.expiresAt) {
+      verificationCodes.delete(email);
+      return res.status(400).json({
+        success: false,
+        message: 'Verification code has expired. Please request a new code.'
+      });
+    }
+
+    if (storedCode.code !== verificationCode) {
+      // Track failed attempts
+      const failedAttempts = storedCode.failedAttempts || 0;
+      if (failedAttempts >= 3) {
+        verificationCodes.delete(email);
+        return res.status(400).json({
+          success: false,
+          message: 'Too many failed attempts. Please request a new code.'
+        });
+      }
+      
+      verificationCodes.set(email, { ...storedCode, failedAttempts: failedAttempts + 1 });
+      
+      return res.status(401).json({
+        success: false,
+        message: 'Invalid verification code'
+      });
+    }
+
+    // Code is valid - clear it and proceed with login
+    verificationCodes.delete(email);
+
+    user.lastLogin = new Date();
+    await user.save();
+
+    const authToken = generateToken(user._id);
+
+    console.log('✅ 2FA verification successful (compatibility endpoint):', email);
+
+    res.json({
+      success: true,
+      data: {
+        user: {
+          _id: user._id,
+          name: user.name,
+          email: user.email,
+          createdAt: user.createdAt,
+          is2FAEnabled: user.is2FAEnabled
+        },
+        token: authToken
+      },
+      message: '2FA verification successful'
+    });
+  } catch (error) {
+    console.error('❌ 2FA verify error (compatibility endpoint):', error);
     next(error);
   }
 });
