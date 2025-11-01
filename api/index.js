@@ -5,16 +5,16 @@ import cors from "cors";
 import dotenv from "dotenv";
 import compression from "compression";
 
-// Import routes - use relative paths from the api directory
-import { authRoutes } from "./routes/auth.js";
-import settingsRoutes from "./routes/settings.js";
-import sessionsRoutes from "./routes/sessions.js";
-import reflectionsRoutes from "./routes/reflections.js";
-import usersRoutes from "./routes/users.js";
+// Import routes - use ../src/ since files are in src directory
+import { authRoutes } from "../src/routes/auth.js";
+import settingsRoutes from "../src/routes/settings.js";
+import sessionsRoutes from "../src/routes/sessions.js";
+import reflectionsRoutes from "../src/routes/reflections.js";
+import usersRoutes from "../src/routes/users.js";
 
-import { apiLimiter } from "./middleware/rateLimit.js";
-import errorHandler from "./middleware/errorHandler.js";
-import logger from "./utils/logger.js";
+import { apiLimiter } from "../src/middleware/rateLimit.js";
+import errorHandler from "../src/middleware/errorHandler.js";
+import logger from "../src/utils/logger.js";
 
 dotenv.config();
 
