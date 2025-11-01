@@ -136,7 +136,7 @@ router.post('/login', validateLogin, async (req, res, next) => {
   }
 });
 
-// Register route
+// Register route - FIXED
 router.post('/register', validateSignup, async (req, res, next) => {
   try {
     const { name, email, password } = req.body;
@@ -184,22 +184,17 @@ router.post('/register', validateSignup, async (req, res, next) => {
       logger.error('Failed to send 2FA code:', emailError);
     }
 
-    const token = generateToken(user._id);
-
-    res.status(201).json({
+    // ✅ FIXED: Return requires2FA instead of direct login
+    return res.json({
       success: true,
       data: {
-        user: {
-          _id: user._id,
-          name: user.name,
-          email: user.email,
-          createdAt: user.createdAt,
-          is2FAEnabled: user.is2FAEnabled
-        },
-        token
+        requires2FA: true,
+        email: user.email,
+        method: 'email'
       },
-      message: 'User registered successfully. Two-factor authentication is enabled for your account.'
+      message: 'Registration successful. Please check your email for the verification code to complete setup.'
     });
+
   } catch (error) {
     next(error);
   }
