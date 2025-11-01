@@ -2,6 +2,7 @@
   "name": "pomodoro-backend",
   "version": "1.0.0",
   "description": "Pomodoro Timer Backend API",
+  "type": "module",
   "main": "api/index.js",
   "scripts": {
     "start": "node api/index.js",

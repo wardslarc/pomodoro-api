@@ -1,5 +1,5 @@
-const { validationResult } = require('express-validator');
-const { ApiResponse } = require('./apiResponse');
+import { validationResult } from 'express-validator';
+import { ApiResponse } from './apiResponse.js';
 
 const customValidators = {
   isObjectId: (value) => {
@@ -68,8 +68,4 @@ const handleValidationErrors = (req, res, next) => {
   next();
 };
 
-module.exports = {
-  customValidators,
-  customSanitizers,
-  handleValidationErrors,
-};
+export { customValidators, customSanitizers, handleValidationErrors };

@@ -1,4 +1,4 @@
-const Session = require('../models/Session');
+import Session from '../models/Session.js';
 
 const getUserSessions = async (req, res) => {
   try {
@@ -91,7 +91,7 @@ const deleteSession = async (req, res) => {
   }
 };
 
-module.exports = {
+export {
   getUserSessions,
   createSession,
   deleteSession

@@ -1,4 +1,4 @@
-const mongoose = require('mongoose');
+import mongoose from 'mongoose';
 
 const reflectionSchema = new mongoose.Schema({
   userId: {
@@ -24,4 +24,4 @@ const reflectionSchema = new mongoose.Schema({
 reflectionSchema.index({ userId: 1, createdAt: -1 });
 reflectionSchema.index({ sessionId: 1 }, { unique: true });
 
-module.exports = mongoose.model('Reflection', reflectionSchema);
+export default mongoose.model('Reflection', reflectionSchema);

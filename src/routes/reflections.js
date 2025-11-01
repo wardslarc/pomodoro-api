@@ -1,8 +1,8 @@
-const express = require('express');
-const Reflection = require('../models/Reflection');
-const Session = require('../models/Session');
-const auth = require('../middleware/auth');
-const { validateReflection } = require('../middleware/validation');
+import express from 'express';
+import Reflection from '../models/Reflection.js';
+import Session from '../models/Session.js';
+import auth from '../middleware/auth.js';
+import { validateReflection } from '../middleware/validation.js';
 
 const router = express.Router();
 
@@ -170,4 +170,4 @@ router.delete('/:id', auth, async (req, res, next) => {
   }
 });
 
-module.exports = router;
+export default router;

@@ -1,4 +1,4 @@
-const mongoose = require('mongoose');
+import mongoose from 'mongoose';
 
 const settingsSchema = new mongoose.Schema({
   userId: {
@@ -70,4 +70,4 @@ settingsSchema.statics.createDefaultSettings = async function(userId) {
   return await this.create({ userId });
 };
 
-module.exports = mongoose.model('Settings', settingsSchema);
+export default mongoose.model('Settings', settingsSchema);

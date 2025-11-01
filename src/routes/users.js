@@ -1,8 +1,9 @@
-const express = require('express');
+import express from 'express';
+import Session from '../models/Session.js';
+import User from '../models/User.js';
+import auth from '../middleware/auth.js';
+
 const router = express.Router();
-const Session = require('../models/Session');
-const User = require('../models/User');
-const auth = require('../middleware/auth');
 
 router.get('/leaderboard', auth, async (req, res, next) => {
   try {
@@ -117,4 +118,4 @@ async function calculateUserStreak(userId) {
   }
 }
 
-module.exports = router;
+export default router;

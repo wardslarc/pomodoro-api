@@ -1,7 +1,14 @@
-const path = require('path');
-require('dotenv').config({ path: path.resolve(__dirname, '../../.env') });
+import path from 'path';
+import { fileURLToPath } from 'url';
+import dotenv from 'dotenv';
+import Joi from 'joi';
 
-const Joi = require('joi');
+// Get __dirname equivalent for ES modules
+const __filename = fileURLToPath(import.meta.url);
+const __dirname = path.dirname(__filename);
+
+// Load environment variables
+dotenv.config({ path: path.resolve(__dirname, '../../.env') });
 
 // Define validation schema for environment variables
 const envVarsSchema = Joi.object({
@@ -82,4 +89,4 @@ const config = {
   logLevel: envVars.LOG_LEVEL,
 };
 
-module.exports = config;
+export default config;

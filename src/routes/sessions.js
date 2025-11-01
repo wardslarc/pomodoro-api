@@ -1,7 +1,7 @@
-const express = require('express');
-const { validateSession } = require('../middleware/validation');
-const auth = require('../middleware/auth');
-const Session = require('../models/Session');
+import express from 'express';
+import { validateSession } from '../middleware/validation.js';
+import auth from '../middleware/auth.js';
+import Session from '../models/Session.js';
 
 const router = express.Router();
 
@@ -80,4 +80,4 @@ router.delete('/:id', auth, async (req, res, next) => {
   }
 });
 
-module.exports = router;
+export default router;

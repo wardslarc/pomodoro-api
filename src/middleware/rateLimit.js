@@ -1,4 +1,4 @@
-const rateLimit = require('express-rate-limit');
+import rateLimit from 'express-rate-limit';
 
 const apiLimiter = rateLimit({
   windowMs: parseInt(process.env.RATE_LIMIT_WINDOW_MS) || 15 * 60 * 1000,
@@ -22,7 +22,4 @@ const authLimiter = rateLimit({
   legacyHeaders: false,
 });
 
-module.exports = {
-  apiLimiter,
-  authLimiter
-};
+export { apiLimiter, authLimiter };

@@ -42,4 +42,5 @@ const responseHelpers = {
   internalError: (message = 'Internal Server Error') => ApiResponse.error(message),
 };
 
-module.exports = { ApiResponse, ...responseHelpers };
+export { ApiResponse };
+export default responseHelpers;

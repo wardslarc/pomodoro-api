@@ -1,5 +1,5 @@
-const helmet = require('helmet');
-const rateLimit = require('express-rate-limit');
+import helmet from 'helmet';
+import rateLimit from 'express-rate-limit';
 
 // Security headers configuration
 const securityHeaders = helmet({
@@ -48,7 +48,7 @@ const strictLimiter = createRateLimit(
   'Too many requests from this IP, please slow down.'
 );
 
-module.exports = {
+export {
   securityHeaders,
   authLimiter,
   apiLimiter,

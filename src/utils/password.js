@@ -1,6 +1,6 @@
-const bcrypt = require('bcryptjs');
-const config = require('../config/env');
-const logger = require('./logger');
+import bcrypt from 'bcryptjs';
+import config from '../config/env.js';
+import logger from './logger.js';
 
 class PasswordUtils {
   static async hashPassword(password) {
@@ -67,4 +67,4 @@ class PasswordUtils {
   }
 }
 
-module.exports = PasswordUtils;
+export default PasswordUtils;

@@ -1,6 +1,6 @@
-const jwt = require('jsonwebtoken');
-const config = require('../config/env');
-const logger = require('./logger');
+import jwt from 'jsonwebtoken';
+import config from '../config/env.js';
+import logger from './logger.js';
 
 class TokenUtils {
   static generateToken(userId, payload = {}) {
@@ -65,4 +65,4 @@ class TokenUtils {
   }
 }
 
-module.exports = TokenUtils;
+export default TokenUtils;

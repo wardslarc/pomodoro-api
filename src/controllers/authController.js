@@ -1,6 +1,6 @@
-const jwt = require('jsonwebtoken');
-const User = require('../models/User');
-const Settings = require('../models/Settings');
+import jwt from 'jsonwebtoken';
+import User from '../models/User.js';
+import Settings from '../models/Settings.js';
 
 const generateToken = (userId) => {
   return jwt.sign({ id: userId }, process.env.JWT_SECRET, {
@@ -8,7 +8,7 @@ const generateToken = (userId) => {
   });
 };
 
-exports.register = async (req, res, next) => {
+export const register = async (req, res, next) => {
   try {
     const { name, email, password } = req.body;
 
@@ -43,7 +43,7 @@ exports.register = async (req, res, next) => {
   }
 };
 
-exports.login = async (req, res, next) => {
+export const login = async (req, res, next) => {
   try {
     const { email, password } = req.body;
 
@@ -84,7 +84,7 @@ exports.login = async (req, res, next) => {
   }
 };
 
-exports.getProfile = async (req, res, next) => {
+export const getProfile = async (req, res, next) => {
   try {
     res.json({
       success: true,
@@ -97,7 +97,7 @@ exports.getProfile = async (req, res, next) => {
   }
 };
 
-exports.updateProfile = async (req, res, next) => {
+export const updateProfile = async (req, res, next) => {
   try {
     const { name } = req.body;
     const user = await User.findByIdAndUpdate(

@@ -1,18 +1,17 @@
-// server.js
 import express from "express";
 import mongoose from "mongoose";
 import helmet from "helmet";
 import dotenv from "dotenv";
 
-// Import your routes
-import authRoutes from "../src/routes/auth";
-import settingsRoutes from "../src/routes/settings";
-import sessionsRoutes from "../src/routes/sessions";
-import reflectionsRoutes from "../src/routes/reflections";
-import usersRoutes from "../src/routes/users";
+// Import your routes WITH .js extensions
+import authRoutes from "../src/routes/auth.js";
+import settingsRoutes from "../src/routes/settings.js";
+import sessionsRoutes from "../src/routes/sessions.js";
+import reflectionsRoutes from "../src/routes/reflections.js";
+import usersRoutes from "../src/routes/users.js";
 
-import { apiLimiter } from "../src/middleware/rateLimit";
-import errorHandler from "../src/middleware/errorHandler";
+import { apiLimiter } from "../src/middleware/rateLimit.js";
+import errorHandler from "../src/middleware/errorHandler.js";
 
 dotenv.config();
 
@@ -102,21 +101,16 @@ async function connectDB() {
   }
 }
 
-// For Vercel serverless
+// Start server
 const startServer = async () => {
   await connectDB();
   const PORT = process.env.PORT || 5000;
-  return app.listen(PORT, () => {
+  app.listen(PORT, () => {
     console.log(`Server running on port ${PORT}`);
   });
 };
 
-// Only start server if running locally (not serverless)
-if (process.env.NODE_ENV !== "production") {
-  startServer().catch((err) => {
-    console.error("Failed to start server:", err);
-    process.exit(1);
-  });
-}
-
-export default app;
+startServer().catch((err) => {
+  console.error("Failed to start server:", err);
+  process.exit(1);
+});

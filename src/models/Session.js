@@ -1,4 +1,4 @@
-const mongoose = require('mongoose');
+import mongoose from 'mongoose';
 
 const sessionSchema = new mongoose.Schema({
   userId: {
@@ -93,4 +93,4 @@ sessionSchema.pre('save', function(next) {
   next();
 });
 
-module.exports = mongoose.models.Session || mongoose.model('Session', sessionSchema);
+export default mongoose.models.Session || mongoose.model('Session', sessionSchema);

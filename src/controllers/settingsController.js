@@ -1,6 +1,6 @@
-const Settings = require('../models/Settings');
+import Settings from '../models/Settings.js';
 
-exports.getSettings = async (req, res, next) => {
+export const getSettings = async (req, res, next) => {
   try {
     let settings = await Settings.findOne({ userId: req.user.id });
 
@@ -19,7 +19,7 @@ exports.getSettings = async (req, res, next) => {
   }
 };
 
-exports.updateSettings = async (req, res, next) => {
+export const updateSettings = async (req, res, next) => {
   try {
     const {
       workDuration,
@@ -63,7 +63,7 @@ exports.updateSettings = async (req, res, next) => {
   }
 };
 
-exports.resetSettings = async (req, res, next) => {
+export const resetSettings = async (req, res, next) => {
   try {
     const settings = await Settings.findOneAndUpdate(
       { userId: req.user.id },
