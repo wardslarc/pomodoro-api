@@ -17,8 +17,28 @@ const userSchema = new mongoose.Schema({
   password: {
     type: String,
     required: true,
-    minlength: 6
+    minlength: 6,
+    select: false // Hide password by default
   },
+  // 2FA Fields for Email-based verification
+  is2FAEnabled: {
+    type: Boolean,
+    default: false
+  },
+  twoFACode: {
+    type: String,
+    select: false // Hide 2FA code by default
+  },
+  twoFAExpires: {
+    type: Date,
+    select: false // Hide expiration by default
+  },
+  // Add this field to track if user has been prompted for 2FA setup
+  hasBeenPromptedFor2FA: {
+    type: Boolean,
+    default: false
+  },
+  // Original fields
   isActive: {
     type: Boolean,
     default: true
@@ -49,6 +69,10 @@ userSchema.methods.comparePassword = async function(candidatePassword) {
 userSchema.methods.toJSON = function() {
   const user = this.toObject();
   delete user.password;
+  delete user.twoFACode;
+  delete user.twoFAExpires;
+  delete user.twoFASecret;
+  delete user.tempTwoFASecret;
   return user;
 };
 

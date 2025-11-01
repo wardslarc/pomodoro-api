@@ -5,7 +5,7 @@ import cors from "cors";
 import dotenv from "dotenv";
 import compression from "compression";
 
-import authRoutes from "../src/routes/auth.js";
+import { authRoutes } from "../src/routes/auth.js"; // Fixed import
 import settingsRoutes from "../src/routes/settings.js";
 import sessionsRoutes from "../src/routes/sessions.js";
 import reflectionsRoutes from "../src/routes/reflections.js";

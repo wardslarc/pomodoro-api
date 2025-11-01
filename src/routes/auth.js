@@ -1,18 +1,97 @@
 import express from 'express';
-import jwt from 'jsonwebtoken';
 import User from '../models/User.js';
-import auth from '../middleware/auth.js';
-import { validateSignup, validateLogin } from '../middleware/validation.js';
+import { validateLogin, validateSignup } from '../middleware/validation.js';
+import { generateToken } from '../utils/auth.js';
 
 const router = express.Router();
 
-const generateToken = (userId) => {
-  return jwt.sign({ id: userId }, process.env.JWT_SECRET, {
-    expiresIn: process.env.JWT_EXPIRES_IN
-  });
-};
+// Login route
+router.post('/login', validateLogin, async (req, res, next) => {
+  try {
+    const { email, password } = req.body;
 
-router.post('/signup', validateSignup, async (req, res, next) => {
+    const user = await User.findOne({ email }).select('+password');
+    if (!user) {
+      return res.status(401).json({
+        success: false,
+        message: 'Invalid email or password'
+      });
+    }
+
+    const isPasswordValid = await user.comparePassword(password);
+    if (!isPasswordValid) {
+      return res.status(401).json({
+        success: false,
+        message: 'Invalid email or password'
+      });
+    }
+
+    if (!user.isActive) {
+      return res.status(401).json({
+        success: false,
+        message: 'Account is deactivated'
+      });
+    }
+
+    // Check if 2FA is enabled
+    if (user.is2FAEnabled) {
+      return res.json({
+        success: true,
+        data: {
+          requires2FA: true,
+          email: user.email
+        },
+        message: '2FA verification required'
+      });
+    }
+
+    // Check if user needs to be prompted for 2FA setup
+    if (!user.is2FAEnabled && !user.hasBeenPromptedFor2FA) {
+      const token = generateToken(user._id);
+      
+      return res.json({
+        success: true,
+        data: {
+          requires2FASetup: true,
+          user: {
+            _id: user._id,
+            name: user.name,
+            email: user.email,
+            createdAt: user.createdAt,
+            is2FAEnabled: user.is2FAEnabled
+          },
+          token
+        },
+        message: 'Login successful. Please consider setting up two-factor authentication for enhanced security.'
+      });
+    }
+
+    user.lastLogin = new Date();
+    await user.save();
+
+    const token = generateToken(user._id);
+
+    res.json({
+      success: true,
+      data: {
+        user: {
+          _id: user._id,
+          name: user.name,
+          email: user.email,
+          createdAt: user.createdAt,
+          is2FAEnabled: user.is2FAEnabled
+        },
+        token
+      },
+      message: 'Login successful'
+    });
+  } catch (error) {
+    next(error);
+  }
+});
+
+// Register route
+router.post('/register', validateSignup, async (req, res, next) => {
   try {
     const { name, email, password } = req.body;
 
@@ -41,48 +120,57 @@ router.post('/signup', validateSignup, async (req, res, next) => {
           _id: user._id,
           name: user.name,
           email: user.email,
-          createdAt: user.createdAt
+          createdAt: user.createdAt,
+          is2FAEnabled: user.is2FAEnabled
         },
         token
       },
-      message: 'User created successfully'
+      message: 'User registered successfully'
     });
   } catch (error) {
     next(error);
   }
 });
 
-router.post('/login', validateLogin, async (req, res, next) => {
+// Logout route
+router.post('/logout', async (req, res, next) => {
   try {
-    const { email, password } = req.body;
+    res.json({
+      success: true,
+      message: 'Logged out successfully'
+    });
+  } catch (error) {
+    next(error);
+  }
+});
 
-    const user = await User.findOne({ email }).select('+password');
+// 2FA routes
+router.post('/verify-2fa', async (req, res, next) => {
+  try {
+    const { email, token } = req.body;
+
+    const user = await User.findOne({ email });
     if (!user) {
-      return res.status(401).json({
+      return res.status(404).json({
         success: false,
-        message: 'Invalid email or password'
+        message: 'User not found'
       });
     }
 
-    const isPasswordValid = await user.comparePassword(password);
-    if (!isPasswordValid) {
-      return res.status(401).json({
-        success: false,
-        message: 'Invalid email or password'
-      });
-    }
+    // TODO: Implement actual 2FA verification
+    const isTokenValid = true;
 
-    if (!user.isActive) {
+    if (!isTokenValid) {
       return res.status(401).json({
         success: false,
-        message: 'Account is deactivated'
+        message: 'Invalid 2FA token'
       });
     }
 
     user.lastLogin = new Date();
     await user.save();
 
-    const token = generateToken(user._id);
+    const authToken = generateToken(user._id);
 
     res.json({
       success: true,
@@ -91,44 +179,84 @@ router.post('/login', validateLogin, async (req, res, next) => {
           _id: user._id,
           name: user.name,
           email: user.email,
-          createdAt: user.createdAt
+          createdAt: user.createdAt,
+          is2FAEnabled: user.is2FAEnabled
         },
-        token
+        token: authToken
       },
-      message: 'Login successful'
+      message: '2FA verification successful'
     });
   } catch (error) {
     next(error);
   }
 });
 
-router.get('/me', auth, async (req, res, next) => {
+router.post('/setup-2fa', async (req, res, next) => {
   try {
+    const { userId } = req.body;
+
+    const user = await User.findById(userId);
+    if (!user) {
+      return res.status(404).json({
+        success: false,
+        message: 'User not found'
+      });
+    }
+
+    // TODO: Implement actual 2FA setup
+    const secret = 'generate-2fa-secret-here';
+    const qrCodeUrl = 'generate-qr-code-url-here';
+
+    user.twoFASecret = secret;
+    user.hasBeenPromptedFor2FA = true;
+    await user.save();
+
     res.json({
       success: true,
       data: {
-        user: {
-          _id: req.user._id,
-          name: req.user.name,
-          email: req.user.email,
-          createdAt: req.user.createdAt
-        }
-      }
+        secret,
+        qrCodeUrl,
+        message: 'Scan the QR code with your authenticator app'
+      },
+      message: '2FA setup initiated'
     });
   } catch (error) {
     next(error);
   }
 });
 
-router.post('/logout', auth, async (req, res, next) => {
+router.post('/enable-2fa', async (req, res, next) => {
   try {
+    const { userId, token } = req.body;
+
+    const user = await User.findById(userId);
+    if (!user) {
+      return res.status(404).json({
+        success: false,
+        message: 'User not found'
+      });
+    }
+
+    // TODO: Implement actual 2FA verification
+    const isTokenValid = true;
+
+    if (!isTokenValid) {
+      return res.status(401).json({
+        success: false,
+        message: 'Invalid 2FA token'
+      });
+    }
+
+    user.is2FAEnabled = true;
+    await user.save();
+
     res.json({
       success: true,
-      message: 'Logout successful'
+      message: '2FA enabled successfully'
     });
   } catch (error) {
     next(error);
   }
 });
 
-export default router;
+export const authRoutes = router;

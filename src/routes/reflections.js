@@ -1,7 +1,7 @@
 import express from 'express';
 import Reflection from '../models/Reflection.js';
 import Session from '../models/Session.js';
-import auth from '../middleware/auth.js';
+import { auth } from '../middleware/auth.js';
 import { validateReflection } from '../middleware/validation.js';
 
 const router = express.Router();

@@ -5,7 +5,7 @@ import {
   updateSettings,
   resetSettings
 } from '../controllers/settingsController.js';
-import auth from '../middleware/auth.js';
+import { auth } from '../middleware/auth.js';
 import { handleValidationErrors } from '../middleware/validation.js';
 
 const router = express.Router();
