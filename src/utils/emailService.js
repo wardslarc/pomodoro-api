@@ -43,7 +43,8 @@ const createTransporter = () => {
     throw new Error('Email service not configured. Check .env file');
   }
 
-  const transporter = nodemailer.createTransporter({
+  // ✅ FIX: Use createTransport (not createTransporter)
+  const transporter = nodemailer.createTransport({
     service: 'gmail',
     auth: {
       user: process.env.EMAIL_USER,
