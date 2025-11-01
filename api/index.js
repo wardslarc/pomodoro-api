@@ -152,6 +152,43 @@ app.get("/api/health", async (req, res) => {
   res.status(statusCode).json(healthCheck);
 });
 
+// 🧪 ADD TEST EMAIL ENDPOINT HERE
+import { send2FACode } from '../src/utils/emailService.js';
+
+app.get("/api/test-email", async (req, res) => {
+  try {
+    console.log('\n🧪 === TESTING EMAIL SERVICE ===');
+    
+    const testEmail = 'cralsdale@gmail.com';
+    const testCode = '123456';
+    
+    console.log(`📧 Testing with: ${testEmail}`);
+    console.log(`🔐 Test code: ${testCode}`);
+    console.log(`📤 Sender: ${process.env.EMAIL_USER}`);
+    
+    const result = await send2FACode(testEmail, testCode);
+    
+    console.log('✅ Email sent successfully!');
+    console.log(`📨 Message ID: ${result.messageId}`);
+    
+    res.json({
+      success: true,
+      message: 'Test email sent successfully! Check your inbox and spam folder.',
+      recipient: testEmail,
+      messageId: result.messageId
+    });
+    
+  } catch (error) {
+    console.error('❌ Email test failed:', error.message);
+    
+    res.status(500).json({
+      success: false,
+      error: error.message,
+      details: 'Check the server logs for more information'
+    });
+  }
+});
+
 // ✅ Database connection middleware for API routes
 app.use(async (req, res, next) => {
   if (req.path === "/api/health") return next();

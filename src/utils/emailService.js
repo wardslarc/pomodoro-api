@@ -1,20 +1,80 @@
 // src/utils/emailService.js
 import nodemailer from 'nodemailer';
-import logger from './logger.js';
+import dotenv from 'dotenv';
+
+// Load environment variables
+dotenv.config();
+
+// Simple console logger for debugging
+const logger = {
+  info: (message, meta) => console.log(`ℹ️ ${message}`, meta || ''),
+  error: (message, error) => console.error(`❌ ${message}`, error || ''),
+  warn: (message) => console.warn(`⚠️ ${message}`)
+};
+
+// Validate environment variables
+function validateEmailConfig() {
+  const requiredEnvVars = ['EMAIL_USER', 'EMAIL_PASS'];
+  const missing = requiredEnvVars.filter(key => !process.env[key]);
+  
+  if (missing.length > 0) {
+    logger.error(`Missing email environment variables: ${missing.join(', ')}`);
+    console.log('\n🔧 QUICK FIX:');
+    console.log('1. Create a .env file in your project root');
+    console.log('2. Add these lines:');
+    console.log('   EMAIL_USER=your-email@gmail.com');
+    console.log('   EMAIL_PASS=your-16-character-app-password');
+    console.log('3. Get app password: Google Account → Security → App passwords\n');
+    return false;
+  }
+  
+  logger.info('Email environment variables are configured');
+  console.log(`📧 Email user: ${process.env.EMAIL_USER}`);
+  console.log(`🔑 Email pass: ${'*'.repeat(process.env.EMAIL_PASS.length)} (${process.env.EMAIL_PASS.length} chars)`);
+  
+  return true;
+}
+
+// Initialize validation
+const isEmailConfigured = validateEmailConfig();
 
 const createTransporter = () => {
-  return nodemailer.createTransport({
+  if (!isEmailConfigured) {
+    throw new Error('Email service not configured. Check .env file');
+  }
+
+  const transporter = nodemailer.createTransporter({
     service: 'gmail',
     auth: {
       user: process.env.EMAIL_USER,
       pass: process.env.EMAIL_PASS,
     },
+    debug: true,
+    logger: true
   });
+
+  return transporter;
 };
 
 export const send2FACode = async (email, code) => {
+  // Early validation
+  if (!isEmailConfigured) {
+    throw new Error('Email service not configured. Please set EMAIL_USER and EMAIL_PASS in .env file');
+  }
+
+  if (!email || !code) {
+    throw new Error('Email and verification code are required');
+  }
+
+  let transporter;
+  
   try {
-    const transporter = createTransporter();
+    console.log('\n📧 === SENDING 2FA EMAIL ===');
+    console.log(`To: ${email}`);
+    console.log(`Code: ${code}`);
+    console.log(`From: ${process.env.EMAIL_USER}`);
+
+    transporter = createTransporter();
 
     const mailOptions = {
       from: `"Reflective Pomodoro" <${process.env.EMAIL_USER}>`,
@@ -36,17 +96,47 @@ export const send2FACode = async (email, code) => {
           </p>
         </div>
       `,
+      text: `Your verification code is: ${code}. This code will expire in 10 minutes.`
     };
 
-    await transporter.sendMail(mailOptions);
-    logger.info(`✅ Verification code sent to ${email}`);
+    console.log('📤 Attempting to send email...');
+    const result = await transporter.sendMail(mailOptions);
+    
+    console.log('✅ Email sent successfully!');
+    console.log(`📨 Message ID: ${result.messageId}`);
+    console.log(`🤖 Response: ${result.response}`);
+    
+    return {
+      success: true,
+      messageId: result.messageId
+    };
+    
   } catch (error) {
-    logger.error('❌ Error sending email:', error);
-    throw new Error('Failed to send verification code');
+    console.error('\n❌ EMAIL SENDING FAILED:');
+    console.error(`Error: ${error.message}`);
+    
+    if (error.code === 'EAUTH') {
+      console.log('\n🔐 AUTHENTICATION ISSUE DETECTED:');
+      console.log('1. Make sure you are using an APP PASSWORD (16 characters)');
+      console.log('2. Enable 2FA on your Gmail account');
+      console.log('3. Generate new app password: Google Account → Security → App passwords');
+      console.log('4. Update your .env file with the new app password');
+    }
+    
+    throw new Error(`Failed to send email: ${error.message}`);
+  } finally {
+    if (transporter) {
+      transporter.close();
+    }
   }
 };
 
 export const sendWelcomeEmail = async (user) => {
+  if (!isEmailConfigured) {
+    logger.warn('Email not configured - skipping welcome email');
+    return;
+  }
+
   try {
     const transporter = createTransporter();
 
@@ -58,58 +148,49 @@ export const sendWelcomeEmail = async (user) => {
         <div style="font-family: Arial, sans-serif; max-width: 600px; margin: 0 auto;">
           <h2 style="color: #4F46E5;">Welcome to Reflective Pomodoro!</h2>
           <p>Hello ${user.name},</p>
-          <p>Thank you for joining Reflective Pomodoro! We're excited to help you boost your productivity with our Pomodoro technique app.</p>
-          <p>Get started by creating your first Pomodoro session and track your productivity patterns.</p>
-          <hr style="border: none; border-top: 1px solid #e2e8f0; margin: 20px 0;">
-          <p style="color: #64748b; font-size: 12px;">
-            Reflective Pomodoro Team
-          </p>
+          <p>Thank you for joining Reflective Pomodoro!</p>
         </div>
       `,
     };
 
     await transporter.sendMail(mailOptions);
-    logger.info(`✅ Welcome email sent to ${user.email}`);
+    console.log(`✅ Welcome email sent to ${user.email}`);
   } catch (error) {
-    logger.error('❌ Error sending welcome email:', error);
-    // Don't throw error for welcome email - it shouldn't block registration
+    console.error('Error sending welcome email:', error);
   }
 };
 
-// Optional: Add password reset email
-export const sendPasswordResetEmail = async (user, resetToken) => {
-  try {
-    const transporter = createTransporter();
-    const resetLink = `${process.env.FRONTEND_URL}/reset-password?token=${resetToken}`;
-
-    const mailOptions = {
-      from: `"Reflective Pomodoro" <${process.env.EMAIL_USER}>`,
-      to: user.email,
-      subject: 'Reset Your Password - Reflective Pomodoro',
-      html: `
-        <div style="font-family: Arial, sans-serif; max-width: 600px; margin: 0 auto;">
-          <h2 style="color: #4F46E5;">Password Reset</h2>
-          <p>Hello ${user.name},</p>
-          <p>You requested to reset your password. Click the link below to create a new password:</p>
-          <div style="text-align: center; margin: 20px 0;">
-            <a href="${resetLink}" style="background-color: #4F46E5; color: white; padding: 12px 24px; text-decoration: none; border-radius: 6px; display: inline-block;">
-              Reset Password
-            </a>
-          </div>
-          <p>This link will expire in 1 hour.</p>
-          <p>If you didn't request this reset, please ignore this email.</p>
-          <hr style="border: none; border-top: 1px solid #e2e8f0; margin: 20px 0;">
-          <p style="color: #64748b; font-size: 12px;">
-            Reflective Pomodoro Team
-          </p>
-        </div>
-      `,
-    };
-
-    await transporter.sendMail(mailOptions);
-    logger.info(`✅ Password reset email sent to ${user.email}`);
-  } catch (error) {
-    logger.error('❌ Error sending password reset email:', error);
-    throw new Error('Failed to send password reset email');
+// Test function
+export const testEmailService = async () => {
+  console.log('\n🧪 === TESTING EMAIL SERVICE ===');
+  
+  if (!isEmailConfigured) {
+    console.log('❌ Test failed: Email not configured');
+    return { success: false, error: 'Email not configured' };
   }
+
+  try {
+    const testEmail = 'cralsdale@gmail.com';
+    const testCode = '123456';
+    
+    console.log(`Testing with email: ${testEmail}`);
+    console.log(`Using sender: ${process.env.EMAIL_USER}`);
+    
+    const result = await send2FACode(testEmail, testCode);
+    
+    console.log('\n🎉 EMAIL SERVICE TEST PASSED!');
+    console.log('✅ Check your email inbox (and spam folder)');
+    
+    return { success: true, messageId: result.messageId };
+  } catch (error) {
+    console.log('\n💥 EMAIL SERVICE TEST FAILED');
+    return { success: false, error: error.message };
+  }
+};
+
+export default {
+  send2FACode,
+  sendWelcomeEmail,
+  testEmailService,
+  isEmailConfigured
 };
