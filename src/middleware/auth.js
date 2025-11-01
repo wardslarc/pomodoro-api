@@ -8,25 +8,24 @@ const auth = async (req, res, next) => {
     if (!token) {
       return res.status(401).json({
         success: false,
-        message: 'No token provided, authorization denied'
+        message: 'No token provided'
       });
     }
 
     const decoded = jwt.verify(token, process.env.JWT_SECRET);
-    
     const user = await User.findById(decoded.id).select('-password');
     
     if (!user) {
       return res.status(401).json({
         success: false,
-        message: 'Token is valid but user no longer exists'
+        message: 'User not found'
       });
     }
 
     if (!user.isActive) {
       return res.status(401).json({
         success: false,
-        message: 'Account is deactivated'
+        message: 'Account deactivated'
       });
     }
 
@@ -49,7 +48,7 @@ const auth = async (req, res, next) => {
 
     res.status(500).json({
       success: false,
-      message: 'Server error in authentication'
+      message: 'Authentication error'
     });
   }
 };

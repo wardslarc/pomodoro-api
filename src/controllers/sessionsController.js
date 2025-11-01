@@ -3,11 +3,12 @@ import Session from '../models/Session.js';
 const getUserSessions = async (req, res) => {
   try {
     const { limit = 100, page = 1 } = req.query;
+    const skip = (parseInt(page) - 1) * parseInt(limit);
     
     const sessions = await Session.find({ userId: req.user._id })
       .sort({ completedAt: -1 })
       .limit(parseInt(limit))
-      .skip((parseInt(page) - 1) * parseInt(limit));
+      .skip(skip);
 
     const total = await Session.countDocuments({ userId: req.user._id });
 
@@ -39,20 +40,16 @@ const createSession = async (req, res) => {
       });
     }
 
-    const session = new Session({
+    const session = await Session.create({
       userId: req.user._id,
       sessionType,
       duration,
       completedAt: completedAt ? new Date(completedAt) : new Date()
     });
 
-    await session.save();
-
     res.status(201).json({
       success: true,
-      data: {
-        session
-      },
+      data: { session },
       message: 'Session saved successfully'
     });
   } catch (error) {

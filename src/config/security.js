@@ -1,7 +1,6 @@
 import helmet from 'helmet';
 import rateLimit from 'express-rate-limit';
 
-// Security headers configuration
 const securityHeaders = helmet({
   contentSecurityPolicy: {
     directives: {
@@ -14,7 +13,6 @@ const securityHeaders = helmet({
   crossOriginEmbedderPolicy: false,
 });
 
-// Rate limiting configuration
 const createRateLimit = (windowMs, max, message) => {
   return rateLimit({
     windowMs,
@@ -25,28 +23,14 @@ const createRateLimit = (windowMs, max, message) => {
     },
     standardHeaders: true,
     legacyHeaders: false,
-    skip: (req) => req.url === '/health',
   });
 };
 
-// Specific rate limiters
-const authLimiter = createRateLimit(
-  15 * 60 * 1000,
-  5,
-  'Too many authentication attempts from this IP, please try again later.'
-);
+const authLimiter = createRateLimit(900000, 5, 'Too many authentication attempts from this IP, please try again later.');
 
-const apiLimiter = createRateLimit(
-  15 * 60 * 1000,
-  100,
-  'Too many requests from this IP, please try again later.'
-);
+const apiLimiter = createRateLimit(900000, 100, 'Too many requests from this IP, please try again later.');
 
-const strictLimiter = createRateLimit(
-  60 * 1000,
-  10,
-  'Too many requests from this IP, please slow down.'
-);
+const strictLimiter = createRateLimit(60000, 10, 'Too many requests from this IP, please slow down.');
 
 export {
   securityHeaders,

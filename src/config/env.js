@@ -1,16 +1,8 @@
-import path from 'path';
-import { fileURLToPath } from 'url';
 import dotenv from 'dotenv';
 import Joi from 'joi';
 
-// Get __dirname equivalent for ES modules
-const __filename = fileURLToPath(import.meta.url);
-const __dirname = path.dirname(__filename);
+dotenv.config();
 
-// Load environment variables
-dotenv.config({ path: path.resolve(__dirname, '../../.env') });
-
-// Define validation schema for environment variables
 const envVarsSchema = Joi.object({
   NODE_ENV: Joi.string()
     .valid('development', 'production', 'test')
@@ -37,7 +29,7 @@ const envVarsSchema = Joi.object({
     .description('BCrypt salt rounds'),
   
   RATE_LIMIT_WINDOW_MS: Joi.number()
-    .default(15 * 60 * 1000)
+    .default(900000)
     .description('Rate limit window in milliseconds'),
   
   RATE_LIMIT_MAX_REQUESTS: Joi.number()
@@ -54,23 +46,17 @@ const envVarsSchema = Joi.object({
     .description('Log level'),
 }).unknown();
 
-// Validate environment variables
 const { value: envVars, error } = envVarsSchema.validate(process.env);
 
 if (error) {
   throw new Error(`Config validation error: ${error.message}`);
 }
 
-// Export configuration object
 const config = {
   env: envVars.NODE_ENV,
   port: envVars.PORT,
   mongoose: {
     url: envVars.MONGODB_URI,
-    options: {
-      useNewUrlParser: true,
-      useUnifiedTopology: true,
-    },
   },
   jwt: {
     secret: envVars.JWT_SECRET,

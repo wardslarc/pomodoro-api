@@ -10,9 +10,7 @@ export const getSettings = async (req, res, next) => {
 
     res.json({
       success: true,
-      data: {
-        settings
-      }
+      data: { settings }
     });
   } catch (error) {
     next(error);
@@ -21,42 +19,16 @@ export const getSettings = async (req, res, next) => {
 
 export const updateSettings = async (req, res, next) => {
   try {
-    const {
-      workDuration,
-      shortBreakDuration,
-      longBreakDuration,
-      sessionsBeforeLongBreak,
-      notificationSound,
-      volume,
-      darkMode,
-      autoStartBreaks,
-      autoStartPomodoros,
-      showSettingsButton
-    } = req.body;
-
     const settings = await Settings.findOneAndUpdate(
       { userId: req.user.id },
-      {
-        workDuration,
-        shortBreakDuration,
-        longBreakDuration,
-        sessionsBeforeLongBreak,
-        notificationSound,
-        volume,
-        darkMode,
-        autoStartBreaks,
-        autoStartPomodoros,
-        showSettingsButton
-      },
+      req.body,
       { new: true, runValidators: true, upsert: true }
     );
 
     res.json({
       success: true,
       message: 'Settings updated successfully',
-      data: {
-        settings
-      }
+      data: { settings }
     });
   } catch (error) {
     next(error);
@@ -65,29 +37,29 @@ export const updateSettings = async (req, res, next) => {
 
 export const resetSettings = async (req, res, next) => {
   try {
+    const defaultSettings = {
+      workDuration: 25,
+      shortBreakDuration: 5,
+      longBreakDuration: 15,
+      sessionsBeforeLongBreak: 4,
+      notificationSound: 'bell',
+      volume: 50,
+      darkMode: false,
+      autoStartBreaks: true,
+      autoStartPomodoros: false,
+      showSettingsButton: false
+    };
+
     const settings = await Settings.findOneAndUpdate(
       { userId: req.user.id },
-      {
-        workDuration: 25,
-        shortBreakDuration: 5,
-        longBreakDuration: 15,
-        sessionsBeforeLongBreak: 4,
-        notificationSound: 'bell',
-        volume: 50,
-        darkMode: false,
-        autoStartBreaks: true,
-        autoStartPomodoros: false,
-        showSettingsButton: false
-      },
+      defaultSettings,
       { new: true }
     );
 
     res.json({
       success: true,
       message: 'Settings reset to defaults',
-      data: {
-        settings
-      }
+      data: { settings }
     });
   } catch (error) {
     next(error);

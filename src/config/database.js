@@ -4,8 +4,6 @@ import logger from '../utils/logger.js';
 const connectDB = async () => {
   try {
     const conn = await mongoose.connect(process.env.MONGODB_URI, {
-      useNewUrlParser: true,
-      useUnifiedTopology: true,
       maxPoolSize: 10,
       serverSelectionTimeoutMS: 5000,
       socketTimeoutMS: 45000,
@@ -21,10 +19,6 @@ const connectDB = async () => {
       logger.warn('MongoDB disconnected');
     });
 
-    mongoose.connection.on('reconnected', () => {
-      logger.info('MongoDB reconnected');
-    });
-
     return conn;
   } catch (error) {
     logger.error('Database connection failed:', error);
@@ -33,14 +27,9 @@ const connectDB = async () => {
 };
 
 const gracefulShutdown = async () => {
-  try {
-    await mongoose.connection.close();
-    logger.info('MongoDB connection closed gracefully');
-    process.exit(0);
-  } catch (error) {
-    logger.error('Error during database shutdown:', error);
-    process.exit(1);
-  }
+  await mongoose.connection.close();
+  logger.info('MongoDB connection closed gracefully');
+  process.exit(0);
 };
 
 process.on('SIGINT', gracefulShutdown);

@@ -30,20 +30,16 @@ router.post('/', auth, validateReflection, async (req, res, next) => {
       });
     }
 
-    const reflection = new Reflection({
+    const reflection = await Reflection.create({
       userId: req.user._id,
       sessionId,
       learnings,
       createdAt: createdAt ? new Date(createdAt) : new Date()
     });
 
-    await reflection.save();
-
     res.status(201).json({
       success: true,
-      data: {
-        reflection
-      },
+      data: { reflection },
       message: 'Reflection saved successfully'
     });
   } catch (error) {
@@ -54,12 +50,13 @@ router.post('/', auth, validateReflection, async (req, res, next) => {
 router.get('/', auth, async (req, res, next) => {
   try {
     const { limit = 50, page = 1 } = req.query;
+    const skip = (parseInt(page) - 1) * parseInt(limit);
     
     const reflections = await Reflection.find({ userId: req.user._id })
       .populate('sessionId', 'sessionType duration completedAt')
       .sort({ createdAt: -1 })
       .limit(parseInt(limit))
-      .skip((parseInt(page) - 1) * parseInt(limit));
+      .skip(skip);
 
     const total = await Reflection.countDocuments({ userId: req.user._id });
 
@@ -95,9 +92,7 @@ router.get('/session/:sessionId', auth, async (req, res, next) => {
 
     res.json({
       success: true,
-      data: {
-        reflection
-      }
+      data: { reflection }
     });
   } catch (error) {
     next(error);
@@ -124,9 +119,7 @@ router.put('/:id', auth, validateReflection, async (req, res, next) => {
 
     res.json({
       success: true,
-      data: {
-        reflection
-      },
+      data: { reflection },
       message: 'Reflection updated successfully'
     });
   } catch (error) {
