@@ -25,7 +25,7 @@ setInterval(() => {
   }
 }, 60 * 60 * 1000); // Run every hour
 
-// Login route
+// Login route - UPDATED FOR OPTION 2 (Force 2FA setup for all users without 2FA)
 router.post('/login', validateLogin, async (req, res, next) => {
   try {
     const { email, password } = req.body;
@@ -55,6 +55,8 @@ router.post('/login', validateLogin, async (req, res, next) => {
 
     // Check if 2FA is enabled
     if (user.is2FAEnabled) {
+      console.log(`🔐 User ${email} has 2FA enabled, sending code...`);
+      
       // Generate and send verification code
       const verificationCode = generateVerificationCode();
       
@@ -65,7 +67,7 @@ router.post('/login', validateLogin, async (req, res, next) => {
         userId: user._id.toString()
       });
 
-      // Send verification code via email using your service
+      // Send verification code via email
       try {
         await send2FACode(user.email, verificationCode);
         logger.info(`2FA code sent to ${user.email}`);
@@ -88,35 +90,22 @@ router.post('/login', validateLogin, async (req, res, next) => {
       });
     }
 
-    // Check if user needs to be prompted for 2FA setup
-    if (!user.is2FAEnabled && !user.hasBeenPromptedFor2FA) {
-      const token = generateToken(user._id);
-      
-      return res.json({
-        success: true,
-        data: {
-          requires2FASetup: true,
-          user: {
-            _id: user._id,
-            name: user.name,
-            email: user.email,
-            createdAt: user.createdAt,
-            is2FAEnabled: user.is2FAEnabled
-          },
-          token
-        },
-        message: 'Login successful. Please consider setting up two-factor authentication for enhanced security.'
-      });
+    // ✅ OPTION 2: Force 2FA setup for ALL users without 2FA (regardless of hasBeenPromptedFor2FA)
+    console.log(`🔐 User ${email} doesn't have 2FA enabled, forcing setup...`);
+    
+    // Generate a temporary token for 2FA setup flow
+    const tempToken = generateToken(user._id);
+    
+    // Mark that they've been prompted (optional, but good for tracking)
+    if (!user.hasBeenPromptedFor2FA) {
+      user.hasBeenPromptedFor2FA = true;
+      await user.save();
     }
-
-    user.lastLogin = new Date();
-    await user.save();
-
-    const token = generateToken(user._id);
-
-    res.json({
+    
+    return res.json({
       success: true,
       data: {
+        requires2FASetup: true,
         user: {
           _id: user._id,
           name: user.name,
@@ -124,10 +113,14 @@ router.post('/login', validateLogin, async (req, res, next) => {
           createdAt: user.createdAt,
           is2FAEnabled: user.is2FAEnabled
         },
-        token
+        token: tempToken
       },
-      message: 'Login successful'
+      message: 'Please set up two-factor authentication to continue'
     });
+
+    // Note: Removed the normal login success path for users without 2FA
+    // This ensures ALL users must have 2FA enabled to access the app
+    
   } catch (error) {
     next(error);
   }
@@ -175,7 +168,7 @@ router.post('/register', validateSignup, async (req, res, next) => {
   }
 });
 
-// 2FA Verification route (for email codes) - UPDATED
+// 2FA Verification route (for email codes)
 router.post('/verify-2fa', async (req, res, next) => {
   try {
     console.log('🔐 2FA Verification Request:', {
@@ -510,7 +503,7 @@ router.post('/2fa/verify', async (req, res, next) => {
   }
 });
 
-// Enable Email 2FA
+// Enable Email 2FA - UPDATED
 router.post('/enable-email-2fa', async (req, res, next) => {
   try {
     const { userId } = req.body;
@@ -536,8 +529,21 @@ router.post('/enable-email-2fa', async (req, res, next) => {
     user.hasBeenPromptedFor2FA = true;
     await user.save();
 
+    // Generate final auth token after 2FA setup
+    const finalToken = generateToken(user._id);
+
     res.json({
       success: true,
+      data: {
+        user: {
+          _id: user._id,
+          name: user.name,
+          email: user.email,
+          createdAt: user.createdAt,
+          is2FAEnabled: user.is2FAEnabled
+        },
+        token: finalToken
+      },
       message: 'Email-based two-factor authentication enabled successfully'
     });
   } catch (error) {
