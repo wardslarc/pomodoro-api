@@ -5,7 +5,7 @@ import cors from "cors";
 import dotenv from "dotenv";
 import compression from "compression";
 
-// Import routes
+// Import routes - use relative paths from the api directory
 import { authRoutes } from "./routes/auth.js";
 import settingsRoutes from "./routes/settings.js";
 import sessionsRoutes from "./routes/sessions.js";
@@ -33,10 +33,9 @@ async function connectToDatabase() {
   }
 
   try {
-    // For serverless, we need different connection options
     const options = {
       maxPoolSize: 10,
-      serverSelectionTimeoutMS: 10000, // Increased timeout
+      serverSelectionTimeoutMS: 10000,
       socketTimeoutMS: 45000,
       bufferCommands: false,
       bufferMaxEntries: 0,
@@ -52,7 +51,6 @@ async function connectToDatabase() {
     
     cachedDb = conn;
     
-    // Handle connection events
     mongoose.connection.on('error', (err) => {
       logger.error('MongoDB connection error:', err);
       cachedDb = null;
@@ -101,16 +99,14 @@ const corsOptions = {
   maxAge: 86400,
 };
 
-// Middleware - ORDER MATTERS!
+// Middleware
 app.use(helmet({
   crossOriginResourcePolicy: { policy: "cross-origin" },
   contentSecurityPolicy: false,
 }));
 
-// CORS before other middleware
 app.options('*', cors(corsOptions));
 app.use(cors(corsOptions));
-
 app.use(compression());
 app.use(express.json({ limit: "10mb" }));
 app.use(express.urlencoded({ extended: true, limit: "10mb" }));
@@ -127,16 +123,13 @@ app.get("/api/health", (req, res) => {
   });
 });
 
-// Database connection middleware - but don't block all requests if DB is down
+// Database connection middleware
 app.use(async (req, res, next) => {
   try {
     await connectToDatabase();
     next();
   } catch (error) {
-    // Don't block the request entirely if DB is down
-    // Some routes might work without DB, or we can handle it in individual routes
     logger.error("Database connection failed in middleware:", error);
-    // Attach DB status to request for routes to handle
     req.dbConnected = false;
     next();
   }
@@ -162,6 +155,5 @@ app.use(errorHandler);
 
 // Vercel serverless function handler
 export default async function handler(req, res) {
-  // For serverless, we need to handle the request with our express app
   return app(req, res);
 }
