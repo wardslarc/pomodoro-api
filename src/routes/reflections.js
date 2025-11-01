@@ -6,6 +6,96 @@ import { validateReflection } from '../middleware/validation.js';
 
 const router = express.Router();
 
+// GET reflections with pagination
+router.get('/', auth, async (req, res, next) => {
+  try {
+    const { limit = 10, page = 1 } = req.query;
+    const skip = (parseInt(page) - 1) * parseInt(limit);
+
+    console.log('🔍 Fetching reflections:', {
+      userId: req.user._id,
+      limit,
+      page,
+      skip
+    });
+
+    const reflections = await Reflection.find({ userId: req.user._id })
+      .sort({ createdAt: -1 })
+      .limit(parseInt(limit))
+      .skip(skip)
+      .populate('sessionId', 'title duration createdAt'); // Populate session details if needed
+
+    const total = await Reflection.countDocuments({ userId: req.user._id });
+
+    console.log('✅ Reflections fetched successfully:', {
+      count: reflections.length,
+      total,
+      userId: req.user._id
+    });
+
+    res.json({
+      success: true,
+      data: {
+        reflections,
+        pagination: {
+          current: parseInt(page),
+          pages: Math.ceil(total / parseInt(limit)),
+          total
+        }
+      }
+    });
+  } catch (error) {
+    console.error('❌ Error fetching reflections:', error);
+    next(error);
+  }
+});
+
+// GET single reflection by ID
+router.get('/:id', auth, async (req, res, next) => {
+  try {
+    const { id } = req.params;
+
+    console.log('🔍 Fetching reflection:', {
+      userId: req.user._id,
+      reflectionId: id
+    });
+
+    const reflection = await Reflection.findOne({
+      _id: id,
+      userId: req.user._id
+    }).populate('sessionId', 'title duration createdAt');
+
+    if (!reflection) {
+      console.log('❌ Reflection not found:', id);
+      return res.status(404).json({
+        success: false,
+        message: 'Reflection not found'
+      });
+    }
+
+    console.log('✅ Reflection found:', reflection._id);
+
+    res.json({
+      success: true,
+      data: {
+        reflection
+      }
+    });
+  } catch (error) {
+    console.error('❌ Error fetching reflection:', error);
+    
+    if (error.name === 'CastError') {
+      return res.status(400).json({
+        success: false,
+        message: 'Invalid reflection ID'
+      });
+    }
+    
+    next(error);
+  }
+});
+
+// POST reflection (your existing code)
 router.post('/', auth, validateReflection, async (req, res, next) => {
   try {
     const { sessionId, learnings, createdAt } = req.body;
