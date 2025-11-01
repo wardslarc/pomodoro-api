@@ -2,7 +2,7 @@ import express from 'express';
 import User from '../models/User.js';
 import { validateLogin, validateSignup } from '../middleware/validation.js';
 import { generateToken } from '../utils/auth.js';
-import { send2FACode } from '../utils/emailService.js';
+import { send2FACode, send2FASetupEmail } from '../utils/emailService.js'; // ✅ Added import
 import logger from '../utils/logger.js';
 
 const router = express.Router();
@@ -93,6 +93,15 @@ router.post('/login', validateLogin, async (req, res, next) => {
     // ✅ OPTION 2: Force 2FA setup for ALL users without 2FA (regardless of hasBeenPromptedFor2FA)
     console.log(`🔐 User ${email} doesn't have 2FA enabled, forcing setup...`);
     
+    // ✅ ADDED: Send 2FA setup instructions email
+    try {
+      await send2FASetupEmail(user.email, user.name);
+      console.log('✅ 2FA setup email sent to:', user.email);
+    } catch (emailError) {
+      console.error('Failed to send 2FA setup email:', emailError);
+      // Don't block the flow if email fails
+    }
+
     // Generate a temporary token for 2FA setup flow
     const tempToken = generateToken(user._id);
     
@@ -115,7 +124,7 @@ router.post('/login', validateLogin, async (req, res, next) => {
         },
         token: tempToken
       },
-      message: 'Please set up two-factor authentication to continue'
+      message: 'Please set up two-factor authentication to continue. Check your email for setup instructions.' // ✅ Updated message
     });
 
     // Note: Removed the normal login success path for users without 2FA
@@ -603,6 +612,33 @@ router.post('/logout', async (req, res, next) => {
     });
   } catch (error) {
     next(error);
+  }
+});
+
+// ✅ ADDED: Test endpoint for 2FA setup email
+router.post('/test-setup-email', async (req, res) => {
+  try {
+    const { email, name } = req.body;
+    
+    if (!email) {
+      return res.status(400).json({
+        success: false,
+        message: 'Email is required'
+      });
+    }
+
+    await send2FASetupEmail(email, name || 'Test User');
+    
+    res.json({
+      success: true,
+      message: '2FA setup email sent successfully'
+    });
+  } catch (error) {
+    console.error('Test setup email failed:', error);
+    res.status(500).json({
+      success: false,
+      error: error.message
+    });
   }
 });
 
