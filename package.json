@@ -2,10 +2,10 @@
   "name": "pomodoro-backend",
   "version": "1.0.0",
   "description": "Pomodoro Timer Backend API",
-  "main": "server.js",
+  "main": "api/index.js",
   "scripts": {
-    "start": "node server.js",
-    "dev": "nodemon server.js",
+    "start": "node api/index.js",
+    "dev": "nodemon api/index.js",
     "test": "jest"
   },
   "dependencies": {
