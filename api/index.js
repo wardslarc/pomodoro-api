@@ -5,7 +5,7 @@ import cors from "cors";
 import dotenv from "dotenv";
 import compression from "compression";
 
-import { authRoutes } from "../src/routes/auth.js"; // Fixed import
+import { authRoutes } from "../src/routes/auth.js";
 import settingsRoutes from "../src/routes/settings.js";
 import sessionsRoutes from "../src/routes/sessions.js";
 import reflectionsRoutes from "../src/routes/reflections.js";
@@ -40,18 +40,26 @@ const allowedOrigins = [
   "https://www.reflectivepomodoro.com",
 ].filter(Boolean);
 
-app.use(cors({
+// Enhanced CORS configuration
+const corsOptions = {
   origin: (origin, callback) => {
     if (!origin || allowedOrigins.includes(origin)) {
       callback(null, true);
     } else {
+      logger.warn(`CORS blocked for origin: ${origin}`);
       callback(new Error('CORS policy violation'), false);
     }
   },
   credentials: true,
   methods: ["GET", "POST", "PUT", "PATCH", "DELETE", "OPTIONS"],
-  allowedHeaders: ["Content-Type", "Authorization", "X-Requested-With"]
-}));
+  allowedHeaders: ["Content-Type", "Authorization", "X-Requested-With"],
+  optionsSuccessStatus: 200 // For legacy browser support
+};
+
+app.use(cors(corsOptions));
+
+// Handle OPTIONS preflight requests explicitly
+app.options('*', cors(corsOptions));
 
 app.use(compression());
 app.use(express.json({ limit: "10mb" }));
