@@ -5,7 +5,7 @@ import cors from "cors";
 import dotenv from "dotenv";
 import compression from "compression";
 
-// Import routes - use ../src/ since files are in src directory
+// CORRECT IMPORTS - use ../src/ instead of ./src/
 import { authRoutes } from "../src/routes/auth.js";
 import settingsRoutes from "../src/routes/settings.js";
 import sessionsRoutes from "../src/routes/sessions.js";
