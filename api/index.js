@@ -5,7 +5,7 @@ import cors from "cors";
 import dotenv from "dotenv";
 import compression from "compression";
 
-// CORRECT IMPORTS - use ../src/ instead of ./src/
+// Import routes
 import { authRoutes } from "../src/routes/auth.js";
 import settingsRoutes from "../src/routes/settings.js";
 import sessionsRoutes from "../src/routes/sessions.js";
@@ -19,6 +19,9 @@ import logger from "../src/utils/logger.js";
 dotenv.config();
 
 const app = express();
+
+// FIX: Configure Express to trust Vercel's proxy
+app.set('trust proxy', 1); // Trust first proxy
 
 // Serverless-compatible MongoDB connection
 let cachedDb = null;
