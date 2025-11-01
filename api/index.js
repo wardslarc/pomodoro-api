@@ -23,16 +23,14 @@ const app = express();
 // ✅ Configure Express to trust Vercel's proxy
 app.set("trust proxy", 1);
 
-// Cached MongoDB connection (important for Vercel serverless)
+// Cached MongoDB connection for serverless
 let cachedConnection = null;
 
 async function connectToDatabase() {
-  // Return existing connection if already established
   if (cachedConnection && mongoose.connection.readyState === 1) {
     return cachedConnection;
   }
 
-  // Clean up stale connections
   if (cachedConnection) {
     await mongoose.disconnect();
     cachedConnection = null;
@@ -43,12 +41,11 @@ async function connectToDatabase() {
   }
 
   try {
-    // Mongoose settings for serverless use
     mongoose.set("bufferCommands", false);
     mongoose.set("bufferTimeoutMS", 30000);
 
     const options = {
-      maxPoolSize: 5, // Reduced for serverless
+      maxPoolSize: 5,
       serverSelectionTimeoutMS: 5000,
       socketTimeoutMS: 45000,
       bufferCommands: false,
@@ -62,10 +59,8 @@ async function connectToDatabase() {
     logger.info("✅ MongoDB connected successfully", {
       database: mongoose.connection.db?.databaseName || "unknown",
       host: mongoose.connection.host,
-      readyState: mongoose.connection.readyState,
     });
 
-    // Handle disconnection and reconnection events
     mongoose.connection.on("error", (err) => {
       logger.error("MongoDB connection error:", err);
       cachedConnection = null;
@@ -123,6 +118,22 @@ app.use(express.json({ limit: "10mb" }));
 app.use(express.urlencoded({ extended: true, limit: "10mb" }));
 app.use("/api/", apiLimiter);
 
+// ✅ Database connection middleware
+app.use(async (req, res, next) => {
+  if (req.path === "/api/health") return next();
+
+  try {
+    await connectToDatabase();
+    next();
+  } catch (error) {
+    logger.error("Database connection failed:", error);
+    return res.status(503).json({
+      success: false,
+      message: "Service temporarily unavailable",
+    });
+  }
+});
+
 // ✅ Health Check
 app.get("/api/health", async (req, res) => {
   const healthCheck = {
@@ -131,53 +142,10 @@ app.get("/api/health", async (req, res) => {
     timestamp: new Date().toISOString(),
     database: mongoose.connection.readyState === 1 ? "connected" : "disconnected",
     uptime: process.uptime(),
-    memory: process.memoryUsage(),
     nodeVersion: process.version,
   };
 
-  if (mongoose.connection.readyState !== 1) {
-    try {
-      await connectToDatabase();
-      healthCheck.database = "reconnected";
-      healthCheck.message = "API is running - database reconnected";
-    } catch (error) {
-      healthCheck.database = "disconnected";
-      healthCheck.message = "API is running - database disconnected";
-      healthCheck.databaseError = error.message;
-    }
-  }
-
-  const statusCode =
-    healthCheck.database === "connected" || healthCheck.database === "reconnected" ? 200 : 503;
-  res.status(statusCode).json(healthCheck);
-});
-
-// ✅ Database connection middleware for API routes
-app.use(async (req, res, next) => {
-  if (req.path === "/api/health") return next();
-
-  try {
-    await connectToDatabase();
-    req.dbConnected = true;
-    next();
-  } catch (error) {
-    logger.error("Database connection failed in middleware:", error);
-    req.dbConnected = false;
-
-    if (
-      req.path.startsWith("/api/auth") ||
-      req.path.startsWith("/api/sessions") ||
-      req.path.startsWith("/api/reflections")
-    ) {
-      return res.status(503).json({
-        success: false,
-        message: "Service temporarily unavailable - database connection failed",
-        error: process.env.NODE_ENV === "development" ? error.message : undefined,
-      });
-    }
-
-    next();
-  }
+  res.status(healthCheck.database === "connected" ? 200 : 503).json(healthCheck);
 });
 
 // ✅ Routes
@@ -187,7 +155,7 @@ app.use("/api/sessions", sessionsRoutes);
 app.use("/api/reflections", reflectionsRoutes);
 app.use("/api/users", usersRoutes);
 
-// 404 Handler
+// ✅ 404 Handler
 app.use("*", (req, res) => {
   res.status(404).json({
     success: false,
@@ -195,20 +163,8 @@ app.use("*", (req, res) => {
   });
 });
 
-// ✅ Global Error Handler
+// ✅ Error Handler
 app.use(errorHandler);
 
-// ✅ Graceful Shutdown
-process.on("SIGTERM", async () => {
-  logger.info("SIGTERM received, closing MongoDB connection");
-  if (cachedConnection) {
-    await mongoose.disconnect();
-    cachedConnection = null;
-  }
-  process.exit(0);
-});
-
-// ✅ Export as Vercel Serverless Function Handler
-export default async function handler(req, res) {
-  return app(req, res);
-}
+// ✅ Export for Vercel
+export default app;
