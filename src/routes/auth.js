@@ -2,7 +2,7 @@ import express from 'express';
 import User from '../models/User.js';
 import { validateLogin, validateSignup } from '../middleware/validation.js';
 import { generateToken } from '../utils/auth.js';
-import { send2FACode, send2FASetupEmail } from '../utils/emailService.js'; // ✅ Added import
+import { send2FACode, sendWelcomeEmail } from '../utils/emailService.js';
 import logger from '../utils/logger.js';
 
 const router = express.Router();
@@ -25,7 +25,7 @@ setInterval(() => {
   }
 }, 60 * 60 * 1000); // Run every hour
 
-// Login route - UPDATED FOR OPTION 2 (Force 2FA setup for all users without 2FA)
+// Login route - UPDATED (Auto-enable 2FA for old users on first login)
 router.post('/login', validateLogin, async (req, res, next) => {
   try {
     const { email, password } = req.body;
@@ -90,52 +90,65 @@ router.post('/login', validateLogin, async (req, res, next) => {
       });
     }
 
-    // ✅ OPTION 2: Force 2FA setup for ALL users without 2FA (regardless of hasBeenPromptedFor2FA)
-    console.log(`🔐 User ${email} doesn't have 2FA enabled, forcing setup...`);
+    // ✅ FOR OLD USERS: Auto-enable 2FA and send welcome email
+    console.log(`🔐 Old user ${email} - auto-enabling 2FA...`);
     
-    // ✅ ADDED: Send 2FA setup instructions email
+    // Auto-enable 2FA for this user
+    user.is2FAEnabled = true;
+    user.twoFAMethod = 'email';
+    user.hasBeenPromptedFor2FA = true;
+    await user.save();
+    
+    console.log(`✅ 2FA auto-enabled for ${email}`);
+
+    // Send welcome email (not setup instructions)
     try {
-      await send2FASetupEmail(user.email, user.name);
-      console.log('✅ 2FA setup email sent to:', user.email);
+      await sendWelcomeEmail(user);
+      console.log('✅ Welcome email sent to:', user.email);
     } catch (emailError) {
-      console.error('Failed to send 2FA setup email:', emailError);
-      // Don't block the flow if email fails
+      console.error('Failed to send welcome email:', emailError);
+      // Don't block login if email fails
     }
 
-    // Generate a temporary token for 2FA setup flow
-    const tempToken = generateToken(user._id);
+    // Generate and send verification code (since 2FA is now enabled)
+    const verificationCode = generateVerificationCode();
     
-    // Mark that they've been prompted (optional, but good for tracking)
-    if (!user.hasBeenPromptedFor2FA) {
-      user.hasBeenPromptedFor2FA = true;
-      await user.save();
+    // Store code with expiration (10 minutes)
+    verificationCodes.set(user.email, {
+      code: verificationCode,
+      expiresAt: Date.now() + 10 * 60 * 1000,
+      userId: user._id.toString()
+    });
+
+    // Send actual 2FA code (not setup instructions)
+    try {
+      await send2FACode(user.email, verificationCode);
+      console.log('✅ 2FA code sent to:', user.email);
+    } catch (emailError) {
+      console.error('Failed to send 2FA code:', emailError);
+      return res.status(500).json({
+        success: false,
+        message: 'Failed to send verification code. Please try again.'
+      });
     }
-    
+
+    // Return that 2FA is required (since we just enabled it)
     return res.json({
       success: true,
       data: {
-        requires2FASetup: true,
-        user: {
-          _id: user._id,
-          name: user.name,
-          email: user.email,
-          createdAt: user.createdAt,
-          is2FAEnabled: user.is2FAEnabled
-        },
-        token: tempToken
+        requires2FA: true,
+        email: user.email,
+        method: 'email'
       },
-      message: 'Please set up two-factor authentication to continue. Check your email for setup instructions.' // ✅ Updated message
+      message: 'Two-factor authentication has been enabled for your account. Verification code sent to your email.'
     });
-
-    // Note: Removed the normal login success path for users without 2FA
-    // This ensures ALL users must have 2FA enabled to access the app
     
   } catch (error) {
     next(error);
   }
 });
 
-// Register route
+// Register route - UPDATED (Auto-enable 2FA for new users)
 router.post('/register', validateSignup, async (req, res, next) => {
   try {
     const { name, email, password } = req.body;
@@ -148,13 +161,45 @@ router.post('/register', validateSignup, async (req, res, next) => {
       });
     }
 
+    // Create user with 2FA already enabled
     const user = new User({
       name,
       email,
-      password
+      password,
+      is2FAEnabled: true, // ✅ Auto-enable 2FA
+      twoFAMethod: 'email', // ✅ Set 2FA method
+      hasBeenPromptedFor2FA: true // ✅ Mark as prompted
     });
 
     await user.save();
+
+    // ✅ Send welcome email
+    try {
+      await sendWelcomeEmail(user);
+      console.log('✅ Welcome email sent to new user:', email);
+    } catch (emailError) {
+      console.error('Failed to send welcome email:', emailError);
+      // Don't block registration if email fails
+    }
+
+    // Generate and send first 2FA code
+    const verificationCode = generateVerificationCode();
+    
+    // Store code with expiration (10 minutes)
+    verificationCodes.set(user.email, {
+      code: verificationCode,
+      expiresAt: Date.now() + 10 * 60 * 1000,
+      userId: user._id.toString()
+    });
+
+    // Send 2FA code
+    try {
+      await send2FACode(user.email, verificationCode);
+      console.log('✅ 2FA code sent to new user:', email);
+    } catch (emailError) {
+      console.error('Failed to send 2FA code:', emailError);
+      // Don't block registration if email fails
+    }
 
     const token = generateToken(user._id);
 
@@ -170,7 +215,7 @@ router.post('/register', validateSignup, async (req, res, next) => {
         },
         token
       },
-      message: 'User registered successfully'
+      message: 'User registered successfully. Two-factor authentication is enabled for your account.'
     });
   } catch (error) {
     next(error);
@@ -354,255 +399,6 @@ router.post('/resend-2fa-code', async (req, res, next) => {
   }
 });
 
-// 🔐 2FA Send Code (for frontend compatibility)
-router.post('/2fa/send-code', async (req, res, next) => {
-  try {
-    const { email } = req.body;
-
-    console.log('📧 2FA Send Code request for:', email);
-
-    if (!email) {
-      return res.status(400).json({
-        success: false,
-        message: 'Email is required'
-      });
-    }
-
-    const user = await User.findOne({ email });
-    if (!user) {
-      return res.status(404).json({
-        success: false,
-        message: 'User not found'
-      });
-    }
-
-    if (!user.is2FAEnabled) {
-      return res.status(400).json({
-        success: false,
-        message: '2FA is not enabled for this account'
-      });
-    }
-
-    // Generate verification code
-    const verificationCode = generateVerificationCode();
-    
-    // Store code with expiration (10 minutes)
-    verificationCodes.set(user.email, {
-      code: verificationCode,
-      expiresAt: Date.now() + 10 * 60 * 1000, // 10 minutes
-      userId: user._id.toString()
-    });
-
-    // Send verification code via email
-    try {
-      await send2FACode(user.email, verificationCode);
-      logger.info(`2FA code sent to ${user.email} via /2fa/send-code endpoint`);
-    } catch (emailError) {
-      logger.error('Failed to send 2FA code:', emailError);
-      return res.status(500).json({
-        success: false,
-        message: 'Failed to send verification code. Please try again.'
-      });
-    }
-
-    res.json({
-      success: true,
-      message: 'Verification code sent to your email'
-    });
-  } catch (error) {
-    console.error('❌ 2FA send-code error:', error);
-    next(error);
-  }
-});
-
-// 🔐 2FA Verify (for frontend compatibility)
-router.post('/2fa/verify', async (req, res, next) => {
-  try {
-    console.log('🔐 2FA Verify request (compatibility endpoint):', req.body);
-
-    const { email, code, token } = req.body;
-    const verificationCode = code || token;
-
-    if (!email || !verificationCode) {
-      return res.status(400).json({
-        success: false,
-        message: 'Email and verification code are required'
-      });
-    }
-
-    const user = await User.findOne({ email });
-    if (!user) {
-      return res.status(404).json({
-        success: false,
-        message: 'User not found'
-      });
-    }
-
-    if (!user.is2FAEnabled) {
-      return res.status(400).json({
-        success: false,
-        message: '2FA is not enabled for this account'
-      });
-    }
-
-    // Check if verification code exists and is valid
-    const storedCode = verificationCodes.get(email);
-    
-    if (!storedCode) {
-      return res.status(400).json({
-        success: false,
-        message: 'No verification code found. Please request a new code.'
-      });
-    }
-
-    if (Date.now() > storedCode.expiresAt) {
-      verificationCodes.delete(email);
-      return res.status(400).json({
-        success: false,
-        message: 'Verification code has expired. Please request a new code.'
-      });
-    }
-
-    if (storedCode.code !== verificationCode) {
-      // Track failed attempts
-      const failedAttempts = storedCode.failedAttempts || 0;
-      if (failedAttempts >= 3) {
-        verificationCodes.delete(email);
-        return res.status(400).json({
-          success: false,
-          message: 'Too many failed attempts. Please request a new code.'
-        });
-      }
-      
-      verificationCodes.set(email, { ...storedCode, failedAttempts: failedAttempts + 1 });
-      
-      return res.status(401).json({
-        success: false,
-        message: 'Invalid verification code'
-      });
-    }
-
-    // Code is valid - clear it and proceed with login
-    verificationCodes.delete(email);
-
-    user.lastLogin = new Date();
-    await user.save();
-
-    const authToken = generateToken(user._id);
-
-    console.log('✅ 2FA verification successful (compatibility endpoint):', email);
-
-    res.json({
-      success: true,
-      data: {
-        user: {
-          _id: user._id,
-          name: user.name,
-          email: user.email,
-          createdAt: user.createdAt,
-          is2FAEnabled: user.is2FAEnabled
-        },
-        token: authToken
-      },
-      message: '2FA verification successful'
-    });
-  } catch (error) {
-    console.error('❌ 2FA verify error (compatibility endpoint):', error);
-    next(error);
-  }
-});
-
-// Enable Email 2FA - UPDATED
-router.post('/enable-email-2fa', async (req, res, next) => {
-  try {
-    const { userId } = req.body;
-
-    if (!userId) {
-      return res.status(400).json({
-        success: false,
-        message: 'User ID is required'
-      });
-    }
-
-    const user = await User.findById(userId);
-    if (!user) {
-      return res.status(404).json({
-        success: false,
-        message: 'User not found'
-      });
-    }
-
-    // Enable email-based 2FA
-    user.is2FAEnabled = true;
-    user.twoFAMethod = 'email';
-    user.hasBeenPromptedFor2FA = true;
-    await user.save();
-
-    // Generate final auth token after 2FA setup
-    const finalToken = generateToken(user._id);
-
-    res.json({
-      success: true,
-      data: {
-        user: {
-          _id: user._id,
-          name: user.name,
-          email: user.email,
-          createdAt: user.createdAt,
-          is2FAEnabled: user.is2FAEnabled
-        },
-        token: finalToken
-      },
-      message: 'Email-based two-factor authentication enabled successfully'
-    });
-  } catch (error) {
-    next(error);
-  }
-});
-
-// Disable 2FA
-router.post('/disable-2fa', async (req, res, next) => {
-  try {
-    const { userId, password } = req.body;
-
-    if (!userId || !password) {
-      return res.status(400).json({
-        success: false,
-        message: 'User ID and password are required'
-      });
-    }
-
-    const user = await User.findById(userId).select('+password');
-    if (!user) {
-      return res.status(404).json({
-        success: false,
-        message: 'User not found'
-      });
-    }
-
-    // Verify password before disabling 2FA
-    const isPasswordValid = await user.comparePassword(password);
-    if (!isPasswordValid) {
-      return res.status(401).json({
-        success: false,
-        message: 'Invalid password'
-      });
-    }
-
-    // Disable 2FA
-    user.is2FAEnabled = false;
-    user.twoFAMethod = undefined;
-    await user.save();
-
-    res.json({
-      success: true,
-      message: 'Two-factor authentication disabled successfully'
-    });
-  } catch (error) {
-    next(error);
-  }
-});
-
 // Logout route
 router.post('/logout', async (req, res, next) => {
   try {
@@ -612,33 +408,6 @@ router.post('/logout', async (req, res, next) => {
     });
   } catch (error) {
     next(error);
-  }
-});
-
-// ✅ ADDED: Test endpoint for 2FA setup email
-router.post('/test-setup-email', async (req, res) => {
-  try {
-    const { email, name } = req.body;
-    
-    if (!email) {
-      return res.status(400).json({
-        success: false,
-        message: 'Email is required'
-      });
-    }
-
-    await send2FASetupEmail(email, name || 'Test User');
-    
-    res.json({
-      success: true,
-      message: '2FA setup email sent successfully'
-    });
-  } catch (error) {
-    console.error('Test setup email failed:', error);
-    res.status(500).json({
-      success: false,
-      error: error.message
-    });
   }
 });
 
