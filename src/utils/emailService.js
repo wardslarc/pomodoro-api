@@ -9,14 +9,7 @@ dotenv.config();
 function validateEmailConfig() {
   const requiredEnvVars = ['EMAIL_USER', 'EMAIL_PASS'];
   const missing = requiredEnvVars.filter(key => !process.env[key]);
-  
-  if (missing.length > 0) {
-    console.error('❌ Missing email environment variables:', missing.join(', '));
-    return false;
-  }
-  
-  console.log('✅ Email environment variables are configured');
-  return true;
+  return missing.length === 0;
 }
 
 // Initialize validation
@@ -24,7 +17,7 @@ const isEmailConfigured = validateEmailConfig();
 
 const createTransporter = () => {
   if (!isEmailConfigured) {
-    throw new Error('Email service not configured. Check .env file');
+    throw new Error('Email service not configured');
   }
 
   return nodemailer.createTransport({
@@ -46,8 +39,6 @@ export const send2FACode = async (email, code) => {
   }
 
   try {
-    console.log(`📧 Sending 2FA code to ${email}`);
-
     const transporter = createTransporter();
 
     const mailOptions = {
@@ -74,7 +65,6 @@ export const send2FACode = async (email, code) => {
     };
 
     const result = await transporter.sendMail(mailOptions);
-    console.log('✅ 2FA code sent successfully');
     
     return {
       success: true,
@@ -82,19 +72,12 @@ export const send2FACode = async (email, code) => {
     };
     
   } catch (error) {
-    console.error('❌ Failed to send 2FA code:', error.message);
-    
-    if (error.code === 'EAUTH') {
-      console.log('🔐 Authentication issue - check Gmail app password configuration');
-    }
-    
-    throw new Error(`Failed to send verification code: ${error.message}`);
+    throw new Error('Failed to send verification code');
   }
 };
 
 export const sendWelcomeEmail = async (user) => {
   if (!isEmailConfigured) {
-    console.log('⚠️ Email not configured - skipping welcome email');
     return;
   }
 
@@ -156,22 +139,14 @@ export const sendWelcomeEmail = async (user) => {
       `
     };
 
-    const result = await transporter.sendMail(mailOptions);
-    console.log(`✅ Welcome email sent to ${user.email}`);
-    
-    return {
-      success: true,
-      messageId: result.messageId
-    };
+    await transporter.sendMail(mailOptions);
     
   } catch (error) {
-    console.error('❌ Failed to send welcome email:', error.message);
-    throw new Error(`Failed to send welcome email: ${error.message}`);
+    // Silent fail for welcome emails
   }
 };
 
 export default {
   send2FACode,
-  sendWelcomeEmail,
-  isEmailConfigured
+  sendWelcomeEmail
 };
