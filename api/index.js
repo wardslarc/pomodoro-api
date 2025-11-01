@@ -21,14 +21,21 @@ dotenv.config();
 const app = express();
 
 // FIX: Configure Express to trust Vercel's proxy
-app.set('trust proxy', 1); // Trust first proxy
+app.set('trust proxy', 1);
 
-// Serverless-compatible MongoDB connection
-let cachedDb = null;
+// Serverless-compatible MongoDB connection with connection caching
+let cachedConnection = null;
 
 async function connectToDatabase() {
-  if (cachedDb) {
-    return cachedDb;
+  // If we have a cached connection and it's connected, return it
+  if (cachedConnection && mongoose.connection.readyState === 1) {
+    return cachedConnection;
+  }
+
+  // If there's a connection but it's not ready, clean it up
+  if (cachedConnection) {
+    await mongoose.disconnect();
+    cachedConnection = null;
   }
 
   if (!process.env.MONGODB_URI) {
@@ -36,38 +43,44 @@ async function connectToDatabase() {
   }
 
   try {
+    // Configure mongoose for serverless environment
+    mongoose.set('bufferCommands', false);
+    mongoose.set('bufferTimeoutMS', 30000);
+    
     const options = {
-      maxPoolSize: 10,
-      serverSelectionTimeoutMS: 10000,
+      maxPoolSize: 5, // Reduced for serverless
+      serverSelectionTimeoutMS: 5000,
       socketTimeoutMS: 45000,
       bufferCommands: false,
       bufferMaxEntries: 0,
     };
 
     logger.info("Attempting to connect to MongoDB...");
-    const conn = await mongoose.connect(process.env.MONGODB_URI, options);
+    await mongoose.connect(process.env.MONGODB_URI, options);
+    
+    cachedConnection = mongoose.connection;
     
     logger.info("MongoDB connected successfully", {
-      database: conn.connection.db?.databaseName || 'unknown',
-      host: conn.connection.host
+      database: mongoose.connection.db?.databaseName || 'unknown',
+      host: mongoose.connection.host,
+      readyState: mongoose.connection.readyState
     });
     
-    cachedDb = conn;
-    
+    // Event handlers for connection issues
     mongoose.connection.on('error', (err) => {
       logger.error('MongoDB connection error:', err);
-      cachedDb = null;
+      cachedConnection = null;
     });
     
     mongoose.connection.on('disconnected', () => {
       logger.warn('MongoDB disconnected');
-      cachedDb = null;
+      cachedConnection = null;
     });
     
-    return conn;
+    return cachedConnection;
   } catch (error) {
     logger.error("MongoDB connection failed:", error);
-    cachedDb = null;
+    cachedConnection = null;
     throw error;
   }
 }
@@ -83,7 +96,10 @@ const allowedOrigins = [
 
 const corsOptions = {
   origin: (origin, callback) => {
-    if (!origin || allowedOrigins.includes(origin)) {
+    // Allow requests with no origin (like mobile apps or curl requests)
+    if (!origin) return callback(null, true);
+    
+    if (allowedOrigins.includes(origin)) {
       callback(null, true);
     } else {
       logger.warn(`CORS blocked for origin: ${origin}`);
@@ -116,24 +132,61 @@ app.use(express.urlencoded({ extended: true, limit: "10mb" }));
 
 app.use("/api/", apiLimiter);
 
-// Health check that doesn't require DB
-app.get("/api/health", (req, res) => {
-  res.status(200).json({
+// Enhanced Health check
+app.get("/api/health", async (req, res) => {
+  const healthCheck = {
     success: true,
     message: "API is running",
     timestamp: new Date().toISOString(),
-    database: mongoose.connection.readyState === 1 ? "connected" : "disconnected"
-  });
+    database: mongoose.connection.readyState === 1 ? "connected" : "disconnected",
+    uptime: process.uptime(),
+    memory: process.memoryUsage(),
+    nodeVersion: process.version,
+  };
+
+  // Try to reconnect if database is disconnected
+  if (mongoose.connection.readyState !== 1) {
+    try {
+      await connectToDatabase();
+      healthCheck.database = "reconnected";
+      healthCheck.message = "API is running - database reconnected";
+    } catch (error) {
+      healthCheck.database = "disconnected";
+      healthCheck.message = "API is running - database disconnected";
+      healthCheck.databaseError = error.message;
+    }
+  }
+
+  const statusCode = healthCheck.database === "connected" || healthCheck.database === "reconnected" ? 200 : 503;
+  res.status(statusCode).json(healthCheck);
 });
 
-// Database connection middleware
+// Database connection middleware for API routes
 app.use(async (req, res, next) => {
+  // Skip database connection for health check
+  if (req.path === '/api/health') {
+    return next();
+  }
+
   try {
     await connectToDatabase();
+    req.dbConnected = true;
     next();
   } catch (error) {
     logger.error("Database connection failed in middleware:", error);
     req.dbConnected = false;
+    
+    // For critical routes, you might want to return an error immediately
+    if (req.path.startsWith('/api/auth') || 
+        req.path.startsWith('/api/sessions') ||
+        req.path.startsWith('/api/reflections')) {
+      return res.status(503).json({
+        success: false,
+        message: "Service temporarily unavailable - database connection failed",
+        error: process.env.NODE_ENV === 'development' ? error.message : undefined
+      });
+    }
+    
     next();
   }
 });
@@ -155,6 +208,16 @@ app.use("*", (req, res) => {
 
 // Error handler
 app.use(errorHandler);
+
+// Graceful shutdown handling for serverless
+process.on('SIGTERM', async () => {
+  logger.info('SIGTERM received, closing MongoDB connection');
+  if (cachedConnection) {
+    await mongoose.disconnect();
+    cachedConnection = null;
+  }
+  process.exit(0);
+});
 
 // Vercel serverless function handler
 export default async function handler(req, res) {

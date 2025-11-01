@@ -7,17 +7,18 @@ dotenv.config();
 const envVarsSchema = Joi.object({
   NODE_ENV: Joi.string()
     .valid('development', 'production', 'test')
-    .default('production'), // Change default to production for Vercel
+    .default('production'),
   
   PORT: Joi.number()
     .default(5000),
   
   MONGODB_URI: Joi.string()
-    .default('') // Allow empty for serverless
+    .uri()
+    .required()
     .description('MongoDB connection string'),
   
   JWT_SECRET: Joi.string()
-    .default('fallback-jwt-secret-change-this-in-production-12345') // Fallback for serverless
+    .required()
     .min(32)
     .description('JWT secret key'),
   
@@ -37,9 +38,10 @@ const envVarsSchema = Joi.object({
     .default(100)
     .description('Max requests per window'),
   
-  ALLOWED_ORIGINS: Joi.string()
-    .default('http://localhost:3000,http://localhost:5173,https://reflectivepomodoro.com,https://www.reflectivepomodoro.com')
-    .description('CORS allowed origins'),
+  FRONTEND_URL: Joi.string()
+    .uri()
+    .default('https://reflectivepomodoro.com')
+    .description('Frontend URL for CORS'),
   
   LOG_LEVEL: Joi.string()
     .valid('error', 'warn', 'info', 'debug')
@@ -51,10 +53,8 @@ const { value: envVars, error } = envVarsSchema.validate(process.env);
 
 if (error) {
   console.error('Config validation error:', error.message);
-  // Don't throw error in production, use fallbacks
+  // In production, we should fail fast if required vars are missing
   if (process.env.NODE_ENV === 'production') {
-    console.log('Using fallback configuration for production...');
-  } else {
     throw new Error(`Config validation error: ${error.message}`);
   }
 }
@@ -63,10 +63,16 @@ const config = {
   env: envVars.NODE_ENV,
   port: envVars.PORT,
   mongoose: {
-    url: envVars.MONGODB_URI || process.env.MONGODB_URI, // Fallback to direct env
+    url: envVars.MONGODB_URI,
+    options: {
+      maxPoolSize: 5,
+      serverSelectionTimeoutMS: 5000,
+      socketTimeoutMS: 45000,
+      bufferCommands: false,
+    }
   },
   jwt: {
-    secret: envVars.JWT_SECRET || process.env.JWT_SECRET || 'fallback-jwt-secret-change-this-in-production-12345',
+    secret: envVars.JWT_SECRET,
     expiresIn: envVars.JWT_EXPIRES_IN,
   },
   bcrypt: {
@@ -77,7 +83,13 @@ const config = {
     max: parseInt(envVars.RATE_LIMIT_MAX_REQUESTS),
   },
   cors: {
-    allowedOrigins: envVars.ALLOWED_ORIGINS.split(',').map(origin => origin.trim()),
+    allowedOrigins: [
+      envVars.FRONTEND_URL,
+      "http://localhost:5173",
+      "http://127.0.0.1:5173",
+      "https://reflectivepomodoro.com",
+      "https://www.reflectivepomodoro.com",
+    ].filter(Boolean),
   },
   logLevel: envVars.LOG_LEVEL,
 };
