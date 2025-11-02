@@ -5,7 +5,6 @@ import cors from "cors";
 import dotenv from "dotenv";
 import compression from "compression";
 
-// Import routes
 import { authRoutes } from "../src/routes/auth.js";
 import settingsRoutes from "../src/routes/settings.js";
 import sessionsRoutes from "../src/routes/sessions.js";
@@ -20,19 +19,15 @@ dotenv.config();
 
 const app = express();
 
-// ✅ Configure Express to trust Vercel's proxy
 app.set("trust proxy", 1);
 
-// Cached MongoDB connection (important for Vercel serverless)
 let cachedConnection = null;
 
 async function connectToDatabase() {
-  // Return existing connection if already established
   if (cachedConnection && mongoose.connection.readyState === 1) {
     return cachedConnection;
   }
 
-  // Clean up stale connections
   if (cachedConnection) {
     await mongoose.disconnect();
     cachedConnection = null;
@@ -43,12 +38,11 @@ async function connectToDatabase() {
   }
 
   try {
-    // Mongoose settings for serverless use
     mongoose.set("bufferCommands", false);
     mongoose.set("bufferTimeoutMS", 30000);
 
     const options = {
-      maxPoolSize: 5, // Reduced for serverless
+      maxPoolSize: 5,
       serverSelectionTimeoutMS: 5000,
       socketTimeoutMS: 45000,
       bufferCommands: false,
@@ -65,7 +59,6 @@ async function connectToDatabase() {
       readyState: mongoose.connection.readyState,
     });
 
-    // Handle disconnection and reconnection events
     mongoose.connection.on("error", (err) => {
       logger.error("MongoDB connection error:", err);
       cachedConnection = null;
@@ -84,7 +77,6 @@ async function connectToDatabase() {
   }
 }
 
-// ✅ Enhanced CORS configuration
 const allowedOrigins = [
   process.env.FRONTEND_URL,
   "http://localhost:5173",
@@ -109,7 +101,6 @@ const corsOptions = {
   maxAge: 86400,
 };
 
-// ✅ Middleware
 app.use(
   helmet({
     crossOriginResourcePolicy: { policy: "cross-origin" },
@@ -123,7 +114,6 @@ app.use(express.json({ limit: "10mb" }));
 app.use(express.urlencoded({ extended: true, limit: "10mb" }));
 app.use("/api/", apiLimiter);
 
-// ✅ Health Check
 app.get("/api/health", async (req, res) => {
   const healthCheck = {
     success: true,
@@ -152,44 +142,6 @@ app.get("/api/health", async (req, res) => {
   res.status(statusCode).json(healthCheck);
 });
 
-// 🧪 ADD TEST EMAIL ENDPOINT HERE
-import { send2FACode } from '../src/utils/emailService.js';
-
-app.get("/api/test-email", async (req, res) => {
-  try {
-    console.log('\n🧪 === TESTING EMAIL SERVICE ===');
-    
-    const testEmail = 'cralsdale@gmail.com';
-    const testCode = '123456';
-    
-    console.log(`📧 Testing with: ${testEmail}`);
-    console.log(`🔐 Test code: ${testCode}`);
-    console.log(`📤 Sender: ${process.env.EMAIL_USER}`);
-    
-    const result = await send2FACode(testEmail, testCode);
-    
-    console.log('✅ Email sent successfully!');
-    console.log(`📨 Message ID: ${result.messageId}`);
-    
-    res.json({
-      success: true,
-      message: 'Test email sent successfully! Check your inbox and spam folder.',
-      recipient: testEmail,
-      messageId: result.messageId
-    });
-    
-  } catch (error) {
-    console.error('❌ Email test failed:', error.message);
-    
-    res.status(500).json({
-      success: false,
-      error: error.message,
-      details: 'Check the server logs for more information'
-    });
-  }
-});
-
-// ✅ Database connection middleware for API routes
 app.use(async (req, res, next) => {
   if (req.path === "/api/health") return next();
 
@@ -217,14 +169,12 @@ app.use(async (req, res, next) => {
   }
 });
 
-// ✅ Routes
 app.use("/api/auth", authRoutes);
 app.use("/api/settings", settingsRoutes);
 app.use("/api/sessions", sessionsRoutes);
 app.use("/api/reflections", reflectionsRoutes);
 app.use("/api/users", usersRoutes);
 
-// 404 Handler
 app.use("*", (req, res) => {
   res.status(404).json({
     success: false,
@@ -232,10 +182,8 @@ app.use("*", (req, res) => {
   });
 });
 
-// ✅ Global Error Handler
 app.use(errorHandler);
 
-// ✅ Graceful Shutdown
 process.on("SIGTERM", async () => {
   logger.info("SIGTERM received, closing MongoDB connection");
   if (cachedConnection) {
@@ -245,7 +193,6 @@ process.on("SIGTERM", async () => {
   process.exit(0);
 });
 
-// ✅ Export as Vercel Serverless Function Handler
 export default async function handler(req, res) {
   return app(req, res);
 }
