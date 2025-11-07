@@ -2,7 +2,6 @@ import express from "express";
 import mongoose from "mongoose";
 import helmet from "helmet";
 import cors from "cors";
-import dotenv from "dotenv";
 import compression from "compression";
 
 import { authRoutes } from "../src/routes/auth.js";
@@ -10,27 +9,61 @@ import settingsRoutes from "../src/routes/settings.js";
 import sessionsRoutes from "../src/routes/sessions.js";
 import reflectionsRoutes from "../src/routes/reflections.js";
 import usersRoutes from "../src/routes/users.js";
+import socialRoutes from "../src/routes/social.js";
 
 import { apiLimiter } from "../src/middleware/rateLimit.js";
 import errorHandler from "../src/middleware/errorHandler.js";
 import logger from "../src/utils/logger.js";
 
-dotenv.config();
-
 const app = express();
 
-app.set("trust proxy", 1);
+// Parse ALLOWED_ORIGINS from environment or use defaults
+const allowedOrigins = process.env.ALLOWED_ORIGINS 
+  ? process.env.ALLOWED_ORIGINS.split(',') 
+  : [
+      "http://localhost:5173",
+      "http://127.0.0.1:5173", 
+      "http://localhost:3000",
+      "http://127.0.0.1:3000",
+      "https://reflectivepomodoro.com",
+      "https://www.reflectivepomodoro.com",
+    ];
 
+const corsOptions = {
+  origin: (origin, callback) => {
+    if (!origin || allowedOrigins.includes(origin)) {
+      callback(null, true);
+    } else {
+      callback(new Error(`CORS policy violation: ${origin} not allowed`), false);
+    }
+  },
+  credentials: true,
+  methods: ["GET", "POST", "PUT", "PATCH", "DELETE", "OPTIONS"],
+  allowedHeaders: ["Content-Type", "Authorization", "X-Requested-With", "Accept", "Origin"],
+  maxAge: 86400,
+};
+
+// Middleware
+app.set("trust proxy", 1);
+app.use(
+  helmet({
+    crossOriginResourcePolicy: { policy: "cross-origin" },
+    contentSecurityPolicy: false,
+  })
+);
+app.options("*", cors(corsOptions));
+app.use(cors(corsOptions));
+app.use(compression());
+app.use(express.json({ limit: "10mb" }));
+app.use(express.urlencoded({ extended: true, limit: "10mb" }));
+app.use("/api/", apiLimiter);
+
+// Database connection cache
 let cachedConnection = null;
 
 async function connectToDatabase() {
   if (cachedConnection && mongoose.connection.readyState === 1) {
     return cachedConnection;
-  }
-
-  if (cachedConnection) {
-    await mongoose.disconnect();
-    cachedConnection = null;
   }
 
   if (!process.env.MONGODB_URI) {
@@ -77,42 +110,22 @@ async function connectToDatabase() {
   }
 }
 
-const allowedOrigins = [
-  process.env.FRONTEND_URL,
-  "http://localhost:5173",
-  "http://127.0.0.1:5173",
-  "https://reflectivepomodoro.com",
-  "https://www.reflectivepomodoro.com",
-].filter(Boolean);
+// Routes
+app.get("/api/test", (req, res) => {
+  res.json({ 
+    success: true, 
+    message: "API is working!",
+    timestamp: new Date().toISOString()
+  });
+});
 
-const corsOptions = {
-  origin: (origin, callback) => {
-    if (!origin) return callback(null, true);
-    if (allowedOrigins.includes(origin)) {
-      callback(null, true);
-    } else {
-      logger.warn(`CORS blocked for origin: ${origin}`);
-      callback(new Error("CORS policy violation"), false);
-    }
-  },
-  credentials: true,
-  methods: ["GET", "POST", "PUT", "PATCH", "DELETE", "OPTIONS"],
-  allowedHeaders: ["Content-Type", "Authorization", "X-Requested-With", "Accept", "Origin"],
-  maxAge: 86400,
-};
-
-app.use(
-  helmet({
-    crossOriginResourcePolicy: { policy: "cross-origin" },
-    contentSecurityPolicy: false,
-  })
-);
-app.options("*", cors(corsOptions));
-app.use(cors(corsOptions));
-app.use(compression());
-app.use(express.json({ limit: "10mb" }));
-app.use(express.urlencoded({ extended: true, limit: "10mb" }));
-app.use("/api/", apiLimiter);
+app.get("/api/social/test", (req, res) => {
+  res.json({ 
+    success: true, 
+    message: "Social routes are working!",
+    timestamp: new Date().toISOString()
+  });
+});
 
 app.get("/api/health", async (req, res) => {
   const healthCheck = {
@@ -137,13 +150,15 @@ app.get("/api/health", async (req, res) => {
     }
   }
 
-  const statusCode =
-    healthCheck.database === "connected" || healthCheck.database === "reconnected" ? 200 : 503;
+  const statusCode = healthCheck.database === "connected" || healthCheck.database === "reconnected" ? 200 : 503;
   res.status(statusCode).json(healthCheck);
 });
 
+// Database middleware for API routes
 app.use(async (req, res, next) => {
-  if (req.path === "/api/health") return next();
+  if (req.path === "/api/health" || req.path === "/api/test" || req.path === "/api/social/test") {
+    return next();
+  }
 
   try {
     await connectToDatabase();
@@ -151,12 +166,12 @@ app.use(async (req, res, next) => {
     next();
   } catch (error) {
     logger.error("Database connection failed in middleware:", error);
-    req.dbConnected = false;
-
+    
     if (
       req.path.startsWith("/api/auth") ||
       req.path.startsWith("/api/sessions") ||
-      req.path.startsWith("/api/reflections")
+      req.path.startsWith("/api/reflections") ||
+      req.path.startsWith("/api/social")
     ) {
       return res.status(503).json({
         success: false,
@@ -169,12 +184,15 @@ app.use(async (req, res, next) => {
   }
 });
 
+// API Routes
 app.use("/api/auth", authRoutes);
 app.use("/api/settings", settingsRoutes);
 app.use("/api/sessions", sessionsRoutes);
 app.use("/api/reflections", reflectionsRoutes);
 app.use("/api/users", usersRoutes);
+app.use("/api/social", socialRoutes);
 
+// 404 handler
 app.use("*", (req, res) => {
   res.status(404).json({
     success: false,
@@ -182,17 +200,8 @@ app.use("*", (req, res) => {
   });
 });
 
+// Error handler
 app.use(errorHandler);
 
-process.on("SIGTERM", async () => {
-  logger.info("SIGTERM received, closing MongoDB connection");
-  if (cachedConnection) {
-    await mongoose.disconnect();
-    cachedConnection = null;
-  }
-  process.exit(0);
-});
-
-export default async function handler(req, res) {
-  return app(req, res);
-}
+// Export for Vercel serverless
+export default app;
