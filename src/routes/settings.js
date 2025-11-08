@@ -27,14 +27,43 @@ const settingsValidation = [
     .optional()
     .isInt({ min: 1, max: 10 })
     .withMessage('Sessions before long break must be between 1 and 10'),
+  body('notificationSound')
+    .optional()
+    .isIn(['bell', 'chime', 'beep', 'none'])
+    .withMessage('Invalid notification sound'),
   body('volume')
     .optional()
     .isInt({ min: 0, max: 100 })
-    .withMessage('Volume must be between 0 and 100')
+    .withMessage('Volume must be between 0 and 100'),
+  body('darkMode')
+    .optional()
+    .isBoolean()
+    .withMessage('Dark mode must be a boolean'),
+  body('autoStartBreaks')
+    .optional()
+    .isBoolean()
+    .withMessage('Auto start breaks must be a boolean'),
+  body('autoStartPomodoros')
+    .optional()
+    .isBoolean()
+    .withMessage('Auto start pomodoros must be a boolean'),
+  body('showSettingsButton')
+    .optional()
+    .isBoolean()
+    .withMessage('Show settings button must be a boolean'),
+  handleValidationErrors
 ];
 
-router.get('/', auth, getSettings);
-router.put('/', auth, settingsValidation, handleValidationErrors, updateSettings);
-router.post('/reset', auth, resetSettings);
+// Apply authentication to all routes
+router.use(auth);
+
+// GET /api/settings - Get user settings
+router.get('/', getSettings);
+
+// PUT /api/settings - Update user settings
+router.put('/', settingsValidation, updateSettings);
+
+// POST /api/settings/reset - Reset settings to defaults
+router.post('/reset', resetSettings);
 
 export default router;

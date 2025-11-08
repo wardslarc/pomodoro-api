@@ -2,19 +2,21 @@ import express from 'express';
 import { validateSession } from '../middleware/validation.js';
 import { auth } from '../middleware/auth.js';
 import Session from '../models/Session.js';
+import { getUserId } from '../utils/userUtils.js';
 
 const router = express.Router();
 
 router.get('/', auth, async (req, res, next) => {
   try {
     const { limit = 100, page = 1 } = req.query;
+    const userId = getUserId(req);
     
-    const sessions = await Session.find({ userId: req.user._id })
+    const sessions = await Session.find({ userId })
       .sort({ completedAt: -1 })
       .limit(parseInt(limit))
       .skip((parseInt(page) - 1) * parseInt(limit));
 
-    const total = await Session.countDocuments({ userId: req.user._id });
+    const total = await Session.countDocuments({ userId });
 
     res.json({
       success: true,
@@ -33,9 +35,10 @@ router.get('/', auth, async (req, res, next) => {
 router.post('/', auth, validateSession, async (req, res, next) => {
   try {
     const { sessionType, duration, completedAt } = req.body;
+    const userId = getUserId(req);
 
     const session = new Session({
-      userId: req.user._id,
+      userId,
       sessionType,
       duration,
       completedAt: completedAt ? new Date(completedAt) : new Date()
@@ -58,10 +61,11 @@ router.post('/', auth, validateSession, async (req, res, next) => {
 router.delete('/:id', auth, async (req, res, next) => {
   try {
     const { id } = req.params;
+    const userId = getUserId(req);
     
     const session = await Session.findOneAndDelete({
       _id: id,
-      userId: req.user._id
+      userId
     });
 
     if (!session) {
