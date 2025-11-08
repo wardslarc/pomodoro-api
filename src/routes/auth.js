@@ -21,7 +21,6 @@ const get2FAKey = (email) => `2fa:${email}`;
 router.post('/register', validateSignup, async (req, res, next) => {
   try {
     const { name, email, password } = req.body;
-    console.log('🔍 Registration attempt:', { email });
 
     const existingUser = await User.findOne({ email });
     if (existingUser) {
@@ -41,20 +40,21 @@ router.post('/register', validateSignup, async (req, res, next) => {
     });
 
     await user.save();
-    console.log('✅ User registered:', user._id);
+    logger.info('User registered successfully', { userId: user._id });
 
     // Send welcome email
     try {
       await sendWelcomeEmail(user);
-      console.log('✅ Welcome email sent');
+      logger.info('Welcome email sent successfully', { userId: user._id });
     } catch (emailError) {
-      console.log('⚠️ Failed to send welcome email:', emailError.message);
-      logger.error('Failed to send welcome email:', emailError);
+      logger.error('Failed to send welcome email:', { 
+        userId: user._id, 
+        error: emailError.message 
+      });
     }
 
     // Generate and send first 2FA code
     const verificationCode = generateVerificationCode();
-    console.log('🔑 Generated initial 2FA code:', verificationCode);
     
     try {
       // Store in Redis
@@ -68,15 +68,16 @@ router.post('/register', validateSignup, async (req, res, next) => {
         },
         600
       );
-      console.log('✅ Initial 2FA code stored in Redis');
 
       // Send 2FA code
       await send2FACode(user.email, verificationCode);
-      console.log('✅ Initial 2FA code sent to email');
+      logger.info('Initial 2FA code sent during registration', { userId: user._id });
 
     } catch (redisError) {
-      console.log('❌ Redis error during registration:', redisError.message);
-      logger.error('Redis error during registration:', redisError);
+      logger.error('Redis error during registration:', { 
+        userId: user._id, 
+        error: redisError.message 
+      });
     }
 
     // Return requires2FA instead of direct login
@@ -91,7 +92,7 @@ router.post('/register', validateSignup, async (req, res, next) => {
     });
 
   } catch (error) {
-    console.log('❌ Registration error:', error.message);
+    logger.error('Registration error:', { error: error.message });
     next(error);
   }
 });
@@ -100,11 +101,10 @@ router.post('/register', validateSignup, async (req, res, next) => {
 router.post('/login', validateLogin, async (req, res, next) => {
   try {
     const { email, password } = req.body;
-    console.log('🔍 Login attempt:', { email });
 
     const user = await User.findOne({ email }).select('+password');
     if (!user) {
-      console.log('❌ User not found:', email);
+      logger.warn('Login attempt failed - user not found', { email });
       return res.status(401).json({
         success: false,
         message: 'Invalid email or password'
@@ -113,7 +113,7 @@ router.post('/login', validateLogin, async (req, res, next) => {
 
     const isPasswordValid = await user.comparePassword(password);
     if (!isPasswordValid) {
-      console.log('❌ Invalid password for user:', email);
+      logger.warn('Login attempt failed - invalid password', { email, userId: user._id });
       return res.status(401).json({
         success: false,
         message: 'Invalid email or password'
@@ -121,28 +121,25 @@ router.post('/login', validateLogin, async (req, res, next) => {
     }
 
     if (!user.isActive) {
-      console.log('❌ User account deactivated:', email);
+      logger.warn('Login attempt failed - account deactivated', { email, userId: user._id });
       return res.status(401).json({
         success: false,
         message: 'Account is deactivated'
       });
     }
 
-    console.log('✅ User authenticated, checking 2FA status:', { 
+    logger.info('User authenticated successfully', { 
       email, 
+      userId: user._id,
       is2FAEnabled: user.is2FAEnabled 
     });
 
     // Check if 2FA is enabled
     if (user.is2FAEnabled) {
-      console.log('🔐 2FA enabled, generating code for:', email);
-      
       // Generate and send verification code
       const verificationCode = generateVerificationCode();
-      console.log('🔑 Generated 2FA code:', verificationCode);
       
       try {
-        console.log('💾 Storing 2FA code in Redis...');
         // Store code in Redis with expiration (10 minutes)
         await redisService.set(
           get2FAKey(user.email), 
@@ -154,13 +151,10 @@ router.post('/login', validateLogin, async (req, res, next) => {
           },
           600 // 10 minutes in seconds
         );
-        console.log('✅ 2FA code stored in Redis');
 
         // Send verification code via email
-        console.log('📧 Sending 2FA code via email...');
         await send2FACode(user.email, verificationCode);
-        console.log('✅ 2FA code sent to email:', user.email);
-        logger.info(`2FA code sent to ${user.email}`);
+        logger.info('2FA code sent for login', { userId: user._id });
 
         return res.json({
           success: true,
@@ -172,8 +166,10 @@ router.post('/login', validateLogin, async (req, res, next) => {
           message: 'Verification code sent to your email'
         });
       } catch (redisError) {
-        console.log('❌ Redis error during 2FA setup:', redisError.message);
-        logger.error('Redis error during 2FA setup:', redisError);
+        logger.error('Redis error during 2FA setup:', { 
+          userId: user._id, 
+          error: redisError.message 
+        });
         return res.status(500).json({
           success: false,
           message: 'Unable to process 2FA request. Please try again.'
@@ -181,28 +177,26 @@ router.post('/login', validateLogin, async (req, res, next) => {
       }
     }
 
-    console.log('🔄 Auto-enabling 2FA for user:', email);
     // Auto-enable 2FA for old users
     user.is2FAEnabled = true;
     user.hasBeenPromptedFor2FA = true;
     await user.save();
-    console.log('✅ 2FA enabled for user:', email);
 
     // Send welcome email
     try {
       await sendWelcomeEmail(user);
-      console.log('✅ Welcome email sent');
+      logger.info('Welcome email sent for existing user', { userId: user._id });
     } catch (emailError) {
-      console.log('⚠️ Failed to send welcome email:', emailError.message);
-      logger.error('Failed to send welcome email:', emailError);
+      logger.error('Failed to send welcome email to existing user:', { 
+        userId: user._id, 
+        error: emailError.message 
+      });
     }
 
     // Generate and send verification code
     const verificationCode = generateVerificationCode();
-    console.log('🔑 Generated initial 2FA code:', verificationCode);
-    
+
     try {
-      console.log('💾 Storing initial 2FA code in Redis...');
       await redisService.set(
         get2FAKey(user.email),
         {
@@ -213,12 +207,10 @@ router.post('/login', validateLogin, async (req, res, next) => {
         },
         600
       );
-      console.log('✅ Initial 2FA code stored in Redis');
 
       // Send 2FA code
-      console.log('📧 Sending initial 2FA code via email...');
       await send2FACode(user.email, verificationCode);
-      console.log('✅ Initial 2FA code sent to email');
+      logger.info('2FA code sent for auto-enabled 2FA', { userId: user._id });
 
       return res.json({
         success: true,
@@ -230,8 +222,10 @@ router.post('/login', validateLogin, async (req, res, next) => {
         message: 'Two-factor authentication has been enabled for your account. Verification code sent to your email.'
       });
     } catch (redisError) {
-      console.log('❌ Redis error sending initial 2FA code:', redisError.message);
-      logger.error('Redis error sending 2FA code:', redisError);
+      logger.error('Redis error sending 2FA code for auto-enable:', { 
+        userId: user._id, 
+        error: redisError.message 
+      });
       return res.status(500).json({
         success: false,
         message: 'Failed to send verification code. Please try again.'
@@ -239,16 +233,15 @@ router.post('/login', validateLogin, async (req, res, next) => {
     }
     
   } catch (error) {
-    console.log('❌ General login error:', error.message);
+    logger.error('Login error:', { error: error.message });
     next(error);
   }
 });
 
-// ✅ ESSENTIAL: 2FA Verification Route
+// 2FA Verification Route
 router.post('/verify-2fa', async (req, res, next) => {
   try {
     const { email, code } = req.body;
-    console.log('🔐 2FA Verification attempt:', { email });
 
     if (!email || !code) {
       return res.status(400).json({
@@ -259,6 +252,7 @@ router.post('/verify-2fa', async (req, res, next) => {
 
     const user = await User.findOne({ email });
     if (!user) {
+      logger.warn('2FA verification failed - user not found', { email });
       return res.status(404).json({
         success: false,
         message: 'User not found'
@@ -266,6 +260,7 @@ router.post('/verify-2fa', async (req, res, next) => {
     }
 
     if (!user.is2FAEnabled) {
+      logger.warn('2FA verification failed - 2FA not enabled', { userId: user._id });
       return res.status(400).json({
         success: false,
         message: '2FA is not enabled for this account'
@@ -276,6 +271,7 @@ router.post('/verify-2fa', async (req, res, next) => {
     const storedData = await redisService.get(get2FAKey(email));
     
     if (!storedData) {
+      logger.warn('2FA verification failed - no code found', { userId: user._id });
       return res.status(400).json({
         success: false,
         message: 'No verification code found. Please request a new code.'
@@ -286,6 +282,7 @@ router.post('/verify-2fa', async (req, res, next) => {
     const failedAttempts = storedData.failedAttempts || 0;
     if (failedAttempts >= 3) {
       await redisService.delete(get2FAKey(email));
+      logger.warn('2FA verification failed - too many attempts', { userId: user._id });
       return res.status(400).json({
         success: false,
         message: 'Too many failed attempts. Please request a new code.'
@@ -304,6 +301,11 @@ router.post('/verify-2fa', async (req, res, next) => {
         600
       );
       
+      logger.warn('2FA verification failed - invalid code', { 
+        userId: user._id, 
+        attempts: failedAttempts + 1 
+      });
+      
       return res.status(401).json({
         success: false,
         message: 'Invalid verification code'
@@ -317,6 +319,8 @@ router.post('/verify-2fa', async (req, res, next) => {
     await user.save();
 
     const authToken = generateToken(user._id);
+
+    logger.info('2FA verification successful', { userId: user._id });
 
     res.json({
       success: true,
@@ -333,16 +337,15 @@ router.post('/verify-2fa', async (req, res, next) => {
       message: '2FA verification successful'
     });
   } catch (error) {
-    console.log('❌ 2FA verification error:', error.message);
+    logger.error('2FA verification error:', { error: error.message });
     next(error);
   }
 });
 
-// ✅ ESSENTIAL: Resend 2FA Code Route
+// Resend 2FA Code Route
 router.post('/resend-2fa-code', async (req, res, next) => {
   try {
     const { email } = req.body;
-    console.log('🔄 Resend 2FA code request:', { email });
 
     if (!email) {
       return res.status(400).json({
@@ -353,6 +356,7 @@ router.post('/resend-2fa-code', async (req, res, next) => {
 
     const user = await User.findOne({ email });
     if (!user) {
+      logger.warn('Resend 2FA code failed - user not found', { email });
       return res.status(404).json({
         success: false,
         message: 'User not found'
@@ -360,6 +364,7 @@ router.post('/resend-2fa-code', async (req, res, next) => {
     }
 
     if (!user.is2FAEnabled) {
+      logger.warn('Resend 2FA code failed - 2FA not enabled', { userId: user._id });
       return res.status(400).json({
         success: false,
         message: '2FA is not enabled for this account'
@@ -368,7 +373,6 @@ router.post('/resend-2fa-code', async (req, res, next) => {
 
     // Generate new verification code
     const verificationCode = generateVerificationCode();
-    console.log('🔑 Generated new 2FA code:', verificationCode);
     
     try {
       // Store in Redis
@@ -382,27 +386,27 @@ router.post('/resend-2fa-code', async (req, res, next) => {
         },
         600 // 10 minutes
       );
-      console.log('✅ New 2FA code stored in Redis');
 
       // Send verification code via email
       await send2FACode(user.email, verificationCode);
-      console.log('✅ New 2FA code sent to email:', user.email);
-      logger.info(`Resent 2FA code to ${user.email}`);
+      logger.info('2FA code resent successfully', { userId: user._id });
 
       res.json({
         success: true,
         message: 'New verification code sent to your email'
       });
     } catch (redisError) {
-      console.log('❌ Redis error resending 2FA code:', redisError.message);
-      logger.error('Redis error resending 2FA code:', redisError);
+      logger.error('Redis error resending 2FA code:', { 
+        userId: user._id, 
+        error: redisError.message 
+      });
       return res.status(500).json({
         success: false,
         message: 'Failed to send verification code. Please try again.'
       });
     }
   } catch (error) {
-    console.log('❌ Resend 2FA code error:', error.message);
+    logger.error('Resend 2FA code error:', { error: error.message });
     next(error);
   }
 });
@@ -418,7 +422,10 @@ router.get('/2fa-status', auth, async (req, res, next) => {
       }
     });
   } catch (error) {
-    console.log('❌ 2FA status check error:', error.message);
+    logger.error('2FA status check error:', { 
+      userId: req.user?._id, 
+      error: error.message 
+    });
     next(error);
   }
 });
@@ -426,36 +433,17 @@ router.get('/2fa-status', auth, async (req, res, next) => {
 // Logout route
 router.post('/logout', auth, async (req, res, next) => {
   try {
+    logger.info('User logged out successfully', { userId: req.user._id });
     res.json({
       success: true,
       message: 'Logged out successfully'
     });
   } catch (error) {
-    console.log('❌ Logout error:', error.message);
+    logger.error('Logout error:', { 
+      userId: req.user?._id, 
+      error: error.message 
+    });
     next(error);
-  }
-});
-
-// Debug route to test Redis from auth routes
-router.get('/test-redis', async (req, res) => {
-  try {
-    console.log('🔍 Testing Redis from auth routes...');
-    
-    // Test Redis operations
-    await redisService.set('auth-test', { test: 'auth routes work', time: new Date() }, 60);
-    const data = await redisService.get('auth-test');
-    
-    res.json({
-      success: true,
-      message: 'Redis working from auth routes',
-      data: data
-    });
-  } catch (error) {
-    console.log('❌ Auth Redis test failed:', error.message);
-    res.status(500).json({
-      success: false,
-      error: error.message
-    });
   }
 });
 
