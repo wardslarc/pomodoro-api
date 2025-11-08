@@ -1,9 +1,12 @@
 import express from "express";
 import mongoose from "mongoose";
-import helmet from "helmet";
 import cors from "cors";
 import compression from "compression";
 
+// Import centralized config
+import config from "../src/config/config.js";
+
+// Import routes
 import { authRoutes } from "../src/routes/auth.js";
 import settingsRoutes from "../src/routes/settings.js";
 import sessionsRoutes from "../src/routes/sessions.js";
@@ -11,29 +14,31 @@ import reflectionsRoutes from "../src/routes/reflections.js";
 import usersRoutes from "../src/routes/users.js";
 import socialRoutes from "../src/routes/social.js";
 
-import { apiLimiter } from "../src/middleware/rateLimit.js";
+// Import middleware
+import { securityHeaders, authLimiter, apiLimiter } from "../src/middleware/security.js";
 import errorHandler from "../src/middleware/errorHandler.js";
 import logger from "../src/utils/logger.js";
 
+// Import logging middleware
+import requestLogger from "../src/middleware/requestLogger.js";
+import securityLogger from "../src/middleware/securityLogger.js";
+
+// Import database connection
+import { connectDB, gracefulShutdown } from "../src/config/database.js";
+
 const app = express();
 
-// Parse ALLOWED_ORIGINS from environment or use defaults
-const allowedOrigins = process.env.ALLOWED_ORIGINS 
-  ? process.env.ALLOWED_ORIGINS.split(',') 
-  : [
-      "http://localhost:5173",
-      "http://127.0.0.1:5173", 
-      "http://localhost:3000",
-      "http://127.0.0.1:3000",
-      "https://reflectivepomodoro.com",
-      "https://www.reflectivepomodoro.com",
-    ];
+// Vercel detection
+const isVercel = process.env.VERCEL;
+const isDevelopment = process.env.NODE_ENV === 'development';
 
+// Use config for CORS origins
 const corsOptions = {
   origin: (origin, callback) => {
-    if (!origin || allowedOrigins.includes(origin)) {
+    if (!origin || config.cors.allowedOrigins.includes(origin)) {
       callback(null, true);
     } else {
+      logger.warn('CORS policy violation attempt', { origin });
       callback(new Error(`CORS policy violation: ${origin} not allowed`), false);
     }
   },
@@ -43,110 +48,77 @@ const corsOptions = {
   maxAge: 86400,
 };
 
-// Middleware
+// Middleware - ORDER MATTERS!
 app.set("trust proxy", 1);
-app.use(
-  helmet({
-    crossOriginResourcePolicy: { policy: "cross-origin" },
-    contentSecurityPolicy: false,
-  })
-);
+
+// 1. First apply security headers (always enabled)
+app.use(securityHeaders);
+
+// 2. Apply logging middleware conditionally
+if (!isVercel || isDevelopment) {
+  // Full logging in development or non-Vercel environments
+  app.use(requestLogger);
+  app.use(securityLogger);
+} else {
+  // Minimal logging in Vercel production - only security events
+  app.use(securityLogger);
+}
+
+// 3. Other essential middleware
 app.options("*", cors(corsOptions));
 app.use(cors(corsOptions));
 app.use(compression());
 app.use(express.json({ limit: "10mb" }));
 app.use(express.urlencoded({ extended: true, limit: "10mb" }));
+
+// Apply rate limiting using config values
 app.use("/api/", apiLimiter);
 
-// Database connection cache
-let cachedConnection = null;
-
-async function connectToDatabase() {
-  if (cachedConnection && mongoose.connection.readyState === 1) {
-    return cachedConnection;
-  }
-
-  if (!process.env.MONGODB_URI) {
-    throw new Error("MONGODB_URI environment variable is required");
-  }
-
+// Database connection initialization
+const initializeDatabase = async () => {
   try {
-    mongoose.set("bufferCommands", false);
-    mongoose.set("bufferTimeoutMS", 30000);
-
-    const options = {
-      maxPoolSize: 5,
-      serverSelectionTimeoutMS: 5000,
-      socketTimeoutMS: 45000,
-      bufferCommands: false,
-    };
-
-    logger.info("Attempting to connect to MongoDB...");
-    await mongoose.connect(process.env.MONGODB_URI, options);
-
-    cachedConnection = mongoose.connection;
-
-    logger.info("✅ MongoDB connected successfully", {
-      database: mongoose.connection.db?.databaseName || "unknown",
-      host: mongoose.connection.host,
-      readyState: mongoose.connection.readyState,
-    });
-
-    mongoose.connection.on("error", (err) => {
-      logger.error("MongoDB connection error:", err);
-      cachedConnection = null;
-    });
-
-    mongoose.connection.on("disconnected", () => {
-      logger.warn("MongoDB disconnected");
-      cachedConnection = null;
-    });
-
-    return cachedConnection;
+    await connectDB();
+    logger.info('Database connection initialized successfully');
   } catch (error) {
-    logger.error("❌ MongoDB connection failed:", error);
-    cachedConnection = null;
-    throw error;
+    logger.error('Failed to initialize database connection:', error);
+    if (config.env === 'production') {
+      process.exit(1);
+    }
   }
+};
+
+// Initialize database on startup (only if not in serverless)
+if (!isVercel) {
+  initializeDatabase();
+} else {
+  // In serverless, we'll connect on first request
+  logger.info('Running in serverless mode - database will connect on first request');
 }
 
-// Routes
-app.get("/api/test", (req, res) => {
-  res.json({ 
-    success: true, 
-    message: "API is working!",
-    timestamp: new Date().toISOString()
-  });
-});
-
-app.get("/api/social/test", (req, res) => {
-  res.json({ 
-    success: true, 
-    message: "Social routes are working!",
-    timestamp: new Date().toISOString()
-  });
-});
-
+// Health check endpoint (optimized for serverless)
 app.get("/api/health", async (req, res) => {
   const healthCheck = {
     success: true,
     message: "API is running",
     timestamp: new Date().toISOString(),
+    environment: config.env,
+    platform: isVercel ? 'vercel' : 'traditional',
     database: mongoose.connection.readyState === 1 ? "connected" : "disconnected",
     uptime: process.uptime(),
     memory: process.memoryUsage(),
     nodeVersion: process.version,
   };
 
+  // In serverless, we might not have a persistent connection
   if (mongoose.connection.readyState !== 1) {
     try {
-      await connectToDatabase();
+      await connectDB();
       healthCheck.database = "reconnected";
       healthCheck.message = "API is running - database reconnected";
     } catch (error) {
       healthCheck.database = "disconnected";
       healthCheck.message = "API is running - database disconnected";
-      healthCheck.databaseError = error.message;
+      healthCheck.databaseError = isDevelopment ? error.message : "Database unavailable";
     }
   }
 
@@ -154,19 +126,48 @@ app.get("/api/health", async (req, res) => {
   res.status(statusCode).json(healthCheck);
 });
 
+// Test endpoints
+app.get("/api/test", (req, res) => {
+  res.json({ 
+    success: true, 
+    message: "API is working!",
+    timestamp: new Date().toISOString(),
+    environment: config.env,
+    platform: isVercel ? 'vercel' : 'traditional'
+  });
+});
+
+app.get("/api/social/test", (req, res) => {
+  res.json({ 
+    success: true, 
+    message: "Social routes are working!",
+    timestamp: new Date().toISOString(),
+    environment: config.env
+  });
+});
+
 // Database middleware for API routes
 app.use(async (req, res, next) => {
+  // Skip database check for health and test endpoints
   if (req.path === "/api/health" || req.path === "/api/test" || req.path === "/api/social/test") {
     return next();
   }
 
   try {
-    await connectToDatabase();
+    // Ensure database is connected (especially important in serverless)
+    if (mongoose.connection.readyState !== 1) {
+      await connectDB();
+    }
     req.dbConnected = true;
     next();
   } catch (error) {
-    logger.error("Database connection failed in middleware:", error);
+    logger.error("Database connection failed in middleware:", {
+      error: error.message,
+      path: req.path,
+      method: req.method
+    });
     
+    // Return service unavailable for critical routes
     if (
       req.path.startsWith("/api/auth") ||
       req.path.startsWith("/api/sessions") ||
@@ -176,13 +177,16 @@ app.use(async (req, res, next) => {
       return res.status(503).json({
         success: false,
         message: "Service temporarily unavailable - database connection failed",
-        error: process.env.NODE_ENV === "development" ? error.message : undefined,
+        error: isDevelopment ? error.message : undefined,
       });
     }
 
     next();
   }
 });
+
+// Apply specific rate limiters to routes
+app.use("/api/auth", authLimiter);
 
 // API Routes
 app.use("/api/auth", authRoutes);
@@ -194,14 +198,70 @@ app.use("/api/social", socialRoutes);
 
 // 404 handler
 app.use("*", (req, res) => {
+  logger.warn('Route not found', { 
+    path: req.originalUrl,
+    method: req.method,
+    ip: req.ip
+  });
+  
   res.status(404).json({
     success: false,
     message: "Route not found",
+    path: req.originalUrl
   });
 });
 
 // Error handler
 app.use(errorHandler);
 
-// Export for Vercel serverless
+// Graceful shutdown handling (only in traditional environments)
+if (!isVercel) {
+  process.on('SIGINT', gracefulShutdown);
+  process.on('SIGTERM', gracefulShutdown);
+}
+
+// Unhandled rejection handler
+process.on('unhandledRejection', (reason, promise) => {
+  logger.error('Unhandled Rejection at:', { 
+    reason: reason instanceof Error ? reason.message : reason,
+    promise: typeof promise
+  });
+  
+  // In production serverless, we don't want to exit the process
+  if (!isVercel && config.env === 'production') {
+    process.exit(1);
+  }
+});
+
+// Uncaught exception handler
+process.on('uncaughtException', (error) => {
+  logger.error('Uncaught Exception thrown:', {
+    message: error.message,
+    stack: error.stack
+  });
+  
+  // In production serverless, we don't want to exit the process
+  if (!isVercel) {
+    process.exit(1);
+  }
+});
+
+// Serverless function optimization
+if (isVercel) {
+  // Optimize for serverless cold starts
+  logger.info('Vercel serverless environment detected');
+  
+  // Pre-warm database connection for better performance
+  setTimeout(async () => {
+    try {
+      if (mongoose.connection.readyState !== 1) {
+        await connectDB();
+        logger.info('Database pre-warmed for serverless');
+      }
+    } catch (error) {
+      logger.warn('Database pre-warm failed:', error.message);
+    }
+  }, 1000);
+}
+
 export default app;
