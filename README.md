@@ -34,6 +34,3 @@ Built with **Node.js**, **Express**, and **MongoDB**.
 - **Standardized API Responses** — consistent response format across all endpoints  
 - **Database Indexing** — optimized MongoDB queries for performance  
 - **Pagination** — supported across list and feed endpoints  
-
-
-
