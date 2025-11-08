@@ -8,7 +8,6 @@ const userSchema = new mongoose.Schema(
       required: true,
       trim: true,
     },
-
     email: {
       type: String,
       required: true,
@@ -16,49 +15,63 @@ const userSchema = new mongoose.Schema(
       trim: true,
       lowercase: true,
     },
-
     password: {
       type: String,
       required: true,
       minlength: 6,
-      select: false, // Hide password by default
+      select: false,
     },
-
-    /** 2FA (Email-based) Fields **/
     is2FAEnabled: {
       type: Boolean,
       default: false,
     },
-
     twoFACode: {
       type: String,
-      select: false, // Hide code by default
+      select: false,
     },
-
     twoFAExpires: {
       type: Date,
       select: false,
     },
-
     hasBeenPromptedFor2FA: {
       type: Boolean,
       default: false,
     },
-
-    /** Account Management **/
     isActive: {
       type: Boolean,
       default: true,
     },
-
     lastLogin: {
       type: Date,
     },
   },
   {
     timestamps: true,
+    toJSON: {
+      virtuals: true,
+      transform: function(doc, ret) {
+        ret.id = ret._id;
+        delete ret._id;
+        delete ret.__v;
+        return ret;
+      }
+    },
+    toObject: {
+      virtuals: true,
+      transform: function(doc, ret) {
+        ret.id = ret._id;
+        delete ret._id;
+        delete ret.__v;
+        return ret;
+      }
+    }
   }
 );
+
+// Virtual for id to ensure consistency
+userSchema.virtual('id').get(function() {
+  return this._id.toString();
+});
 
 /** 🔐 Hash password before saving **/
 userSchema.pre('save', async function (next) {
@@ -76,16 +89,6 @@ userSchema.pre('save', async function (next) {
 /** 🧩 Compare password **/
 userSchema.methods.comparePassword = async function (candidatePassword) {
   return bcrypt.compare(candidatePassword, this.password);
-};
-
-/** 🧹 Clean sensitive data before sending to client **/
-userSchema.methods.toJSON = function () {
-  const user = this.toObject();
-  delete user.password;
-  delete user.twoFACode;
-  delete user.twoFAExpires;
-  delete user.__v;
-  return user;
 };
 
 export default mongoose.model('User', userSchema);

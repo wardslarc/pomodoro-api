@@ -1,9 +1,12 @@
 import express from "express";
 import mongoose from "mongoose";
-import helmet from "helmet";
 import cors from "cors";
 import compression from "compression";
 
+// Import centralized config
+import config from "../src/config/config.js";
+
+// Import routes
 import { authRoutes } from "../src/routes/auth.js";
 import settingsRoutes from "../src/routes/settings.js";
 import sessionsRoutes from "../src/routes/sessions.js";
@@ -11,30 +14,34 @@ import reflectionsRoutes from "../src/routes/reflections.js";
 import usersRoutes from "../src/routes/users.js";
 import socialRoutes from "../src/routes/social.js";
 
-import { apiLimiter } from "../src/middleware/rateLimit.js";
+// Import middleware
+import { securityHeaders, authLimiter, apiLimiter } from "../src/middleware/security.js";
 import errorHandler from "../src/middleware/errorHandler.js";
 import logger from "../src/utils/logger.js";
 
+// Import logging middleware
+import securityLogger from "../src/middleware/securityLogger.js";
+
+// Import database connection
+import { connectDB } from "../src/config/database.js";
+
+// Import Redis service
+import redisService from "../src/services/redisService.js";
+
 const app = express();
 
-// Parse ALLOWED_ORIGINS from environment or use defaults
-const allowedOrigins = process.env.ALLOWED_ORIGINS 
-  ? process.env.ALLOWED_ORIGINS.split(',') 
-  : [
-      "http://localhost:5173",
-      "http://127.0.0.1:5173", 
-      "http://localhost:3000",
-      "http://127.0.0.1:3000",
-      "https://reflectivepomodoro.com",
-      "https://www.reflectivepomodoro.com",
-    ];
+// Environment detection
+const isVercel = process.env.VERCEL;
+const isDevelopment = config.env === 'development';
 
+// CORS configuration
 const corsOptions = {
   origin: (origin, callback) => {
-    if (!origin || allowedOrigins.includes(origin)) {
+    if (!origin || config.cors.allowedOrigins.includes(origin)) {
       callback(null, true);
     } else {
-      callback(new Error(`CORS policy violation: ${origin} not allowed`), false);
+      logger.warn('CORS policy violation attempt', { origin });
+      callback(new Error('CORS policy violation'), false);
     }
   },
   credentials: true,
@@ -43,140 +50,88 @@ const corsOptions = {
   maxAge: 86400,
 };
 
-// Middleware
+// Middleware setup
 app.set("trust proxy", 1);
-app.use(
-  helmet({
-    crossOriginResourcePolicy: { policy: "cross-origin" },
-    contentSecurityPolicy: false,
-  })
-);
+
+// Security first
+app.use(securityHeaders);
+app.use(securityLogger); // Always enable security logging
+
+// Core middleware
 app.options("*", cors(corsOptions));
 app.use(cors(corsOptions));
 app.use(compression());
 app.use(express.json({ limit: "10mb" }));
 app.use(express.urlencoded({ extended: true, limit: "10mb" }));
+
+// Rate limiting
 app.use("/api/", apiLimiter);
+app.use("/api/auth", authLimiter);
 
-// Database connection cache
-let cachedConnection = null;
-
-async function connectToDatabase() {
-  if (cachedConnection && mongoose.connection.readyState === 1) {
-    return cachedConnection;
-  }
-
-  if (!process.env.MONGODB_URI) {
-    throw new Error("MONGODB_URI environment variable is required");
-  }
-
-  try {
-    mongoose.set("bufferCommands", false);
-    mongoose.set("bufferTimeoutMS", 30000);
-
-    const options = {
-      maxPoolSize: 5,
-      serverSelectionTimeoutMS: 5000,
-      socketTimeoutMS: 45000,
-      bufferCommands: false,
-    };
-
-    logger.info("Attempting to connect to MongoDB...");
-    await mongoose.connect(process.env.MONGODB_URI, options);
-
-    cachedConnection = mongoose.connection;
-
-    logger.info("✅ MongoDB connected successfully", {
-      database: mongoose.connection.db?.databaseName || "unknown",
-      host: mongoose.connection.host,
-      readyState: mongoose.connection.readyState,
-    });
-
-    mongoose.connection.on("error", (err) => {
-      logger.error("MongoDB connection error:", err);
-      cachedConnection = null;
-    });
-
-    mongoose.connection.on("disconnected", () => {
-      logger.warn("MongoDB disconnected");
-      cachedConnection = null;
-    });
-
-    return cachedConnection;
-  } catch (error) {
-    logger.error("❌ MongoDB connection failed:", error);
-    cachedConnection = null;
-    throw error;
-  }
+// Database initialization for non-serverless environments
+if (!isVercel) {
+  connectDB().catch((error) => {
+    logger.error('Failed to initialize database:', error);
+    if (config.env === 'production') {
+      process.exit(1);
+    }
+  });
 }
 
-// Routes
-app.get("/api/test", (req, res) => {
-  res.json({ 
-    success: true, 
-    message: "API is working!",
-    timestamp: new Date().toISOString()
-  });
-});
-
-app.get("/api/social/test", (req, res) => {
-  res.json({ 
-    success: true, 
-    message: "Social routes are working!",
-    timestamp: new Date().toISOString()
-  });
-});
-
+// Health check endpoint
 app.get("/api/health", async (req, res) => {
   const healthCheck = {
     success: true,
     message: "API is running",
     timestamp: new Date().toISOString(),
+    environment: config.env,
     database: mongoose.connection.readyState === 1 ? "connected" : "disconnected",
     uptime: process.uptime(),
     memory: process.memoryUsage(),
     nodeVersion: process.version,
   };
 
+  // Attempt reconnection if needed
   if (mongoose.connection.readyState !== 1) {
     try {
-      await connectToDatabase();
+      await connectDB();
       healthCheck.database = "reconnected";
-      healthCheck.message = "API is running - database reconnected";
     } catch (error) {
       healthCheck.database = "disconnected";
-      healthCheck.message = "API is running - database disconnected";
-      healthCheck.databaseError = error.message;
+      healthCheck.databaseError = isDevelopment ? error.message : undefined;
     }
   }
 
-  const statusCode = healthCheck.database === "connected" || healthCheck.database === "reconnected" ? 200 : 503;
+  const statusCode = healthCheck.database === "disconnected" ? 503 : 200;
   res.status(statusCode).json(healthCheck);
 });
 
-// Database middleware for API routes
+// Database connection middleware for API routes
 app.use(async (req, res, next) => {
-  if (req.path === "/api/health" || req.path === "/api/test" || req.path === "/api/social/test") {
+  // Skip database check for health endpoint
+  if (req.path === "/api/health") {
     return next();
   }
 
   try {
-    await connectToDatabase();
+    if (mongoose.connection.readyState !== 1) {
+      await connectDB();
+    }
     req.dbConnected = true;
     next();
   } catch (error) {
-    logger.error("Database connection failed in middleware:", error);
+    logger.error("Database connection failed:", {
+      error: error.message,
+      path: req.path,
+      method: req.method
+    });
     
-    if (
-      req.path.startsWith("/api/auth") ||
-      req.path.startsWith("/api/sessions") ||
-      req.path.startsWith("/api/reflections") ||
-      req.path.startsWith("/api/social")
-    ) {
+    // Critical routes get service unavailable response
+    if (req.path.startsWith("/api/auth") || req.path.startsWith("/api/sessions")) {
       return res.status(503).json({
         success: false,
-        message: "Service temporarily unavailable - database connection failed",
-        error: process.env.NODE_ENV === "development" ? error.message : undefined,
+        message: "Service temporarily unavailable",
+        error: isDevelopment ? error.message : undefined,
       });
     }
 
@@ -197,11 +152,28 @@ app.use("*", (req, res) => {
   res.status(404).json({
     success: false,
     message: "Route not found",
+    path: req.originalUrl
   });
 });
 
 // Error handler
 app.use(errorHandler);
 
-// Export for Vercel serverless
+// Process event handlers
+process.on('unhandledRejection', (reason) => {
+  logger.error('Unhandled Rejection:', {
+    reason: reason instanceof Error ? reason.message : reason
+  });
+});
+
+process.on('uncaughtException', (error) => {
+  logger.error('Uncaught Exception:', {
+    message: error.message,
+    stack: error.stack
+  });
+  if (!isVercel) {
+    process.exit(1);
+  }
+});
+
 export default app;

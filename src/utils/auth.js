@@ -1,21 +1,28 @@
 import jwt from 'jsonwebtoken';
 import crypto from 'crypto';
-
-const JWT_SECRET = process.env.JWT_SECRET || 'your-fallback-secret-key-change-in-production';
-const JWT_EXPIRES_IN = process.env.JWT_EXPIRES_IN || '7d';
+import config from '../config/config.js'; // Updated import path
+import logger from './logger.js';
 
 export function generateToken(userId) {
   return jwt.sign(
     { userId },
-    JWT_SECRET,
-    { expiresIn: JWT_EXPIRES_IN }
+    config.jwt.secret,
+    { 
+      expiresIn: config.jwt.expiresIn,
+      issuer: 'reflective-pomodoro',
+      audience: 'reflective-pomodoro-users'
+    }
   );
 }
 
 export function verifyToken(token) {
   try {
-    return jwt.verify(token, JWT_SECRET);
+    return jwt.verify(token, config.jwt.secret, {
+      issuer: 'reflective-pomodoro',
+      audience: 'reflective-pomodoro-users'
+    });
   } catch (error) {
+    logger.error('Token verification failed:', error);
     throw new Error('Invalid token');
   }
 }

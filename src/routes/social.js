@@ -88,6 +88,7 @@ router.get('/posts', async (req, res) => {
 router.post('/posts', auth, async (req, res) => {
   try {
     const { reflectionId, isPublic = true } = req.body;
+    const userId = getUserId(req);
 
     // Find the reflection
     const reflection = await Reflection.findById(reflectionId);
@@ -99,7 +100,7 @@ router.post('/posts', auth, async (req, res) => {
     }
 
     // Check if user owns the reflection
-    if (reflection.userId.toString() !== req.user.id) {
+    if (!compareUserIds(reflection.userId, userId)) {
       return res.status(403).json({
         success: false,
         message: 'Not authorized to share this reflection'
@@ -160,7 +161,7 @@ router.post('/posts/:postId/like', auth, async (req, res) => {
       });
     }
 
-    const userId = req.user.id;
+    const userId = getUserId(req);
     const likeIndex = post.likes.indexOf(userId);
 
     if (likeIndex > -1) {
@@ -255,8 +256,9 @@ router.get('/me/posts', auth, async (req, res) => {
     const page = parseInt(req.query.page) || 1;
     const limit = parseInt(req.query.limit) || 10;
     const skip = (page - 1) * limit;
+    const userId = getUserId(req);
 
-    const posts = await Post.find({ userId: req.user.id })
+    const posts = await Post.find({ userId })
       .populate('userId', 'name email')
       .populate('comments.userId', 'name')
       .sort({ createdAt: -1 })
@@ -290,6 +292,7 @@ router.get('/me/posts', auth, async (req, res) => {
 router.delete('/posts/:postId', auth, async (req, res) => {
   try {
     const post = await Post.findById(req.params.postId);
+    const userId = getUserId(req);
     
     if (!post) {
       return res.status(404).json({
@@ -299,7 +302,7 @@ router.delete('/posts/:postId', auth, async (req, res) => {
     }
 
     // Check if user owns the post
-    if (post.userId.toString() !== req.user.id) {
+    if (!compareUserIds(post.userId, userId)) {
       return res.status(403).json({
         success: false,
         message: 'Not authorized to delete this post'

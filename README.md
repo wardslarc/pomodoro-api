@@ -35,7 +35,5 @@ Built with **Node.js**, **Express**, and **MongoDB**.
 - **Database Indexing** — optimized MongoDB queries for performance  
 - **Pagination** — supported across list and feed endpoints  
 
----
-
 
 

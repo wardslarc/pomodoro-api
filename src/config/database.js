@@ -1,15 +1,16 @@
 import mongoose from 'mongoose';
+import config from './config.js'; // Updated import path
 import logger from '../utils/logger.js';
 
 const connectDB = async () => {
   try {
-    const conn = await mongoose.connect(process.env.MONGODB_URI, {
-      maxPoolSize: 10,
-      serverSelectionTimeoutMS: 5000,
-      socketTimeoutMS: 45000,
-    });
+    const conn = await mongoose.connect(config.mongoose.url, config.mongoose.options);
 
-    logger.info(`MongoDB Connected: ${conn.connection.host}`);
+    logger.info(`MongoDB Connected: ${conn.connection.host}`, {
+      database: conn.connection.db?.databaseName,
+      host: conn.connection.host,
+      readyState: conn.connection.readyState
+    });
     
     mongoose.connection.on('error', (err) => {
       logger.error('MongoDB connection error:', err);
@@ -19,17 +20,31 @@ const connectDB = async () => {
       logger.warn('MongoDB disconnected');
     });
 
+    mongoose.connection.on('reconnected', () => {
+      logger.info('MongoDB reconnected');
+    });
+
     return conn;
   } catch (error) {
     logger.error('Database connection failed:', error);
-    process.exit(1);
+    
+    if (config.env === 'production') {
+      process.exit(1);
+    }
+    
+    throw error;
   }
 };
 
 const gracefulShutdown = async () => {
-  await mongoose.connection.close();
-  logger.info('MongoDB connection closed gracefully');
-  process.exit(0);
+  try {
+    await mongoose.connection.close();
+    logger.info('MongoDB connection closed gracefully');
+    process.exit(0);
+  } catch (error) {
+    logger.error('Error during graceful shutdown:', error);
+    process.exit(1);
+  }
 };
 
 process.on('SIGINT', gracefulShutdown);

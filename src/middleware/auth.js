@@ -29,7 +29,15 @@ const auth = async (req, res, next) => {
       });
     }
 
+    // STANDARDIZED: Set both _id and id for consistency
     req.user = user;
+    req.userId = user._id.toString(); // Always use this in routes
+    
+    // Ensure user object has both _id and id
+    if (!user.id) {
+      user.id = user._id.toString();
+    }
+
     next();
   } catch (error) {
     return res.status(401).json({
