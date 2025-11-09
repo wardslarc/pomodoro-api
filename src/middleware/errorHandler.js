@@ -1,14 +1,49 @@
 import config from '../config/index.js';
+import logger from '../src/utils/logger.js'; // Import your Vercel-optimized logger
+
+/**
+ * Sanitize request body to remove sensitive information before logging
+ */
+function sanitizeRequestBody(body) {
+  if (!body || typeof body !== 'object') return body;
+  
+  const sensitiveFields = [
+    'password', 'token', 'authorization', 'auth', 
+    'secret', 'key', 'creditCard', 'ssn', 'cvv'
+  ];
+  
+  const sanitized = { ...body };
+  
+  sensitiveFields.forEach(field => {
+    if (sanitized[field]) {
+      sanitized[field] = '***REDACTED***';
+    }
+  });
+  
+  return sanitized;
+}
+
+/**
+ * Sanitize error messages to remove sensitive information
+ */
+function sanitizeErrorMessage(message, env) {
+  if (env === 'production') {
+    // Remove API URLs and sensitive paths from error messages
+    return message
+      .replace(/https?:\/\/[^\s]+/g, '[REDACTED_URL]')
+      .replace(/\/api\/[^\s]+/g, '[REDACTED_ENDPOINT]')
+      .replace(/mongodb(\+srv)?:\/\/[^@]+@/g, 'mongodb://[REDACTED_CREDENTIALS]@')
+      .replace(/API_KEY_[^\s]+/g, '[REDACTED_API_KEY]');
+  }
+  
+  return message;
+}
 
 /**
  * Production-safe error handler for Express.js
  * Logs detailed errors server-side but returns only safe messages to the client
  */
 const errorHandler = (err, req, res, next) => {
-  // Clone the error for logging
-  const errorToLog = { ...err };
-  errorToLog.message = err.message;
-  
   // Add request context to error log
   const errorContext = {
     path: req.path,
@@ -133,76 +168,6 @@ const errorHandler = (err, req, res, next) => {
 
   // Send response
   res.status(statusCode).json(response);
-};
-
-/**
- * Sanitize request body to remove sensitive information before logging
- */
-function sanitizeRequestBody(body) {
-  if (!body || typeof body !== 'object') return body;
-  
-  const sensitiveFields = [
-    'password', 'token', 'authorization', 'auth', 
-    'secret', 'key', 'creditCard', 'ssn', 'cvv'
-  ];
-  
-  const sanitized = { ...body };
-  
-  sensitiveFields.forEach(field => {
-    if (sanitized[field]) {
-      sanitized[field] = '***REDACTED***';
-    }
-  });
-  
-  return sanitized;
-}
-
-/**
- * Sanitize error messages to remove sensitive information
- */
-function sanitizeErrorMessage(message, env) {
-  if (env === 'production') {
-    // Remove API URLs and sensitive paths from error messages
-    return message
-      .replace(/https?:\/\/[^\s]+/g, '[REDACTED_URL]')
-      .replace(/\/api\/[^\s]+/g, '[REDACTED_ENDPOINT]')
-      .replace(/mongodb(\+srv)?:\/\/[^@]+@/g, 'mongodb://[REDACTED_CREDENTIALS]@')
-      .replace(/API_KEY_[^\s]+/g, '[REDACTED_API_KEY]');
-  }
-  
-  return message;
-}
-
-/**
- * Logger utility (compatible with Winston/Sentry)
- */
-const logger = {
-  error: (message, context = {}) => {
-    console.error(JSON.stringify({
-      level: 'ERROR',
-      timestamp: new Date().toISOString(),
-      message,
-      ...context
-    }));
-  },
-  
-  warn: (message, context = {}) => {
-    console.warn(JSON.stringify({
-      level: 'WARN',
-      timestamp: new Date().toISOString(),
-      message,
-      ...context
-    }));
-  },
-  
-  info: (message, context = {}) => {
-    console.log(JSON.stringify({
-      level: 'INFO',
-      timestamp: new Date().toISOString(),
-      message,
-      ...context
-    }));
-  }
 };
 
 export default errorHandler;
