@@ -1,5 +1,5 @@
 import config from '../config/config.js';
-import logger from '../src/utils/logger.js'; 
+import logger from '../utils/logger.js'; 
 
 /**
  * Sanitize request body to remove sensitive information before logging
