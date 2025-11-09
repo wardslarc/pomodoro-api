@@ -39,10 +39,7 @@ function sanitizeErrorMessage(message, env) {
   return message;
 }
 
-/**
- * Production-safe error handler for Express.js
- * Logs detailed errors server-side but returns only safe messages to the client
- */
+
 const errorHandler = (err, req, res, next) => {
   // Add request context to error log
   const errorContext = {
