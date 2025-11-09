@@ -16,6 +16,35 @@ const envVarsSchema = Joi.object({
     .required()
     .description('MongoDB connection string'),
   
+  // MongoDB specific configurations
+  MONGODB_DB_NAME: Joi.string()
+    .default('reflectivePomodoro')
+    .description('MongoDB database name'),
+  
+  MONGODB_MAX_POOL_SIZE: Joi.number()
+    .default(10)
+    .description('MongoDB max pool size'),
+  
+  MONGODB_SERVER_SELECTION_TIMEOUT: Joi.number()
+    .default(5000)
+    .description('MongoDB server selection timeout in ms'),
+  
+  MONGODB_SOCKET_TIMEOUT: Joi.number()
+    .default(45000)
+    .description('MongoDB socket timeout in ms'),
+  
+  MONGODB_CONNECT_TIMEOUT: Joi.number()
+    .default(10000)
+    .description('MongoDB connection timeout in ms'),
+  
+  MONGODB_RETRY_WRITES: Joi.boolean()
+    .default(true)
+    .description('MongoDB retry writes'),
+  
+  MONGODB_RETRY_READS: Joi.boolean()
+    .default(true)
+    .description('MongoDB retry reads'),
+  
   JWT_SECRET: Joi.string()
     .required()
     .min(32)
@@ -57,11 +86,16 @@ const config = {
   env: envVars.NODE_ENV,
   port: envVars.PORT,
   mongoose: {
-    url: envVars.MONGODB_URI + (envVars.NODE_ENV === 'test' ? '-test' : ''),
+    // Ensure the connection string includes the database name
+    url: envVars.MONGODB_URI,
     options: {
-      maxPoolSize: 10,
-      serverSelectionTimeoutMS: 5000,
-      socketTimeoutMS: 45000,
+      dbName: envVars.MONGODB_DB_NAME,
+      maxPoolSize: parseInt(envVars.MONGODB_MAX_POOL_SIZE),
+      serverSelectionTimeoutMS: parseInt(envVars.MONGODB_SERVER_SELECTION_TIMEOUT),
+      socketTimeoutMS: parseInt(envVars.MONGODB_SOCKET_TIMEOUT),
+      connectTimeoutMS: parseInt(envVars.MONGODB_CONNECT_TIMEOUT),
+      retryWrites: envVars.MONGODB_RETRY_WRITES,
+      retryReads: envVars.MONGODB_RETRY_READS,
       bufferCommands: false,
     }
   },
