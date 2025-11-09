@@ -25,9 +25,6 @@ import securityLogger from "../src/middleware/securityLogger.js";
 // Import database connection
 import { connectDB } from "../src/config/database.js";
 
-// Import Redis service
-import redisService from "../src/services/redisService.js";
-
 const app = express();
 
 // Environment detection
