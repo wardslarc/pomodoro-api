@@ -1,5 +1,5 @@
 import config from '../config/config.js';
-import logger from '../src/utils/logger.js'; 
+import logger from '../utils/logger.js'; 
 
 /**
  * Sanitize request body to remove sensitive information before logging
@@ -39,10 +39,7 @@ function sanitizeErrorMessage(message, env) {
   return message;
 }
 
-/**
- * Production-safe error handler for Express.js
- * Logs detailed errors server-side but returns only safe messages to the client
- */
+
 const errorHandler = (err, req, res, next) => {
   // Add request context to error log
   const errorContext = {
