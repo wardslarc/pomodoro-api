@@ -37,22 +37,6 @@ const envVarsSchema = Joi.object({
     .default(100)
     .description('Max requests per window'),
   
-  FRONTEND_URL: Joi.string()
-    .uri()
-    .default('http://localhost:3000')
-    .description('Frontend URL for CORS'),
-  
-  ALLOWED_ORIGINS: Joi.string()
-    .default('http://localhost:3000,http://localhost:5173,http://127.0.0.1:3000,http://127.0.0.1:5173')
-    .description('Comma-separated list of allowed CORS origins'),
-  
-  EMAIL_USER: Joi.string()
-    .email()
-    .description('Email service username'),
-  
-  EMAIL_PASS: Joi.string()
-    .description('Email service password'),
-  
   LOG_LEVEL: Joi.string()
     .valid('error', 'warn', 'info', 'debug')
     .default('info')
@@ -63,20 +47,11 @@ const { value: envVars, error } = envVarsSchema.validate(process.env);
 
 if (error) {
   console.error('Config validation error:', error.message);
-  if (process.env.NODE_ENV === 'production') {
-    throw new Error(`Config validation error: ${error.message}`);
-  }
+  throw new Error(`Config validation error: ${error.message}`);
 }
 
-// Parse ALLOWED_ORIGINS into an array
-const allowedOrigins = envVars.ALLOWED_ORIGINS 
-  ? envVars.ALLOWED_ORIGINS.split(',') 
-  : [
-      "http://localhost:5173",
-      "http://127.0.0.1:5173", 
-      "http://localhost:3000",
-      "http://127.0.0.1:3000",
-    ];
+// Production CORS configuration - only allow your domain
+const allowedOrigins = ['https://www.reflectivepomodoro.com'];
 
 const config = {
   env: envVars.NODE_ENV,
@@ -101,20 +76,12 @@ const config = {
     windowMs: parseInt(envVars.RATE_LIMIT_WINDOW_MS),
     max: parseInt(envVars.RATE_LIMIT_MAX_REQUESTS),
   },
-    logging: {
+  logging: {
     level: envVars.LOG_LEVEL || 'info',
-    enableRequestLogging: envVars.ENABLE_REQUEST_LOGGING !== 'false', // default true
-    enableSecurityLogging: envVars.ENABLE_SECURITY_LOGGING !== 'false', // default true
   },
   cors: {
     allowedOrigins: allowedOrigins,
-    frontendUrl: envVars.FRONTEND_URL,
   },
-  email: {
-    user: envVars.EMAIL_USER,
-    pass: envVars.EMAIL_PASS,
-  },
-  logLevel: envVars.LOG_LEVEL,
 };
 
 export default config;
