@@ -85,8 +85,6 @@ const config = {
   cors: {
     allowedOrigins: [
       envVars.FRONTEND_URL,
-      "http://localhost:5173",
-      "http://127.0.0.1:5173",
       "https://reflectivepomodoro.com",
       "https://www.reflectivepomodoro.com",
     ].filter(Boolean),
