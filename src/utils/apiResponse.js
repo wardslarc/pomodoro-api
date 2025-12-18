@@ -1,3 +1,6 @@
+/**
+ * Standardized API Response class for consistent response format
+ */
 class ApiResponse {
   constructor(success, message, data = null, meta = null) {
     this.success = success;
@@ -17,6 +20,18 @@ class ApiResponse {
 
   static paginated(message, data, pagination) {
     return new ApiResponse(true, message, data, { pagination });
+  }
+
+  static notFound(resource = 'Resource') {
+    return new ApiResponse(false, `${resource} not found`);
+  }
+
+  static unauthorized(message = 'Unauthorized access') {
+    return new ApiResponse(false, message);
+  }
+
+  static forbidden(message = 'Forbidden') {
+    return new ApiResponse(false, message);
   }
 
   toJSON() {

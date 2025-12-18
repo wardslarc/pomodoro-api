@@ -19,8 +19,10 @@ import { securityHeaders, authLimiter, apiLimiter } from "../src/middleware/secu
 import errorHandler from "../src/middleware/errorHandler.js";
 import logger from "../src/utils/logger.js";
 
-// Import logging middleware
+// Import logging and monitoring middleware
 import securityLogger from "../src/middleware/securityLogger.js";
+import { performanceMonitor, metricsCollector, apiMetrics } from "../src/middleware/monitoring.js";
+import { cacheMiddleware, initializeRedis, closeRedis } from "../src/middleware/caching.js";
 
 // Import database connection
 import { connectDB } from "../src/config/database.js";
@@ -54,6 +56,10 @@ app.set("trust proxy", 1);
 app.use(securityHeaders);
 app.use(securityLogger); // Always enable security logging
 
+// Performance monitoring and metrics collection
+app.use(performanceMonitor(isDevelopment ? 2000 : 1000)); // Log requests slower than 2s in dev, 1s in prod
+app.use(metricsCollector);
+
 // Core middleware
 app.options("*", cors(corsOptions));
 app.use(cors(corsOptions));
@@ -64,6 +70,17 @@ app.use(express.urlencoded({ extended: true, limit: "10mb" }));
 // Rate limiting
 app.use("/api/", apiLimiter);
 app.use("/api/auth", authLimiter);
+
+// Cache middleware for GET requests (5 minute TTL)
+app.use("/api/settings", cacheMiddleware(300));
+app.use("/api/reflections", cacheMiddleware(300));
+
+// Initialize Redis for caching
+if (!isVercel) {
+  initializeRedis().catch((error) => {
+    logger.warn('Redis initialization failed, continuing without cache:', error.message);
+  });
+}
 
 // Database initialization for non-serverless environments
 if (!isVercel) {
@@ -103,10 +120,23 @@ app.get("/api/health", async (req, res) => {
   res.status(statusCode).json(healthCheck);
 });
 
+// Metrics endpoint (only in development)
+if (isDevelopment) {
+  app.get("/api/metrics", (req, res) => {
+    res.json({
+      success: true,
+      data: {
+        summary: apiMetrics.getSummary(),
+        endpoints: apiMetrics.getMetrics()
+      }
+    });
+  });
+}
+
 // Database connection middleware for API routes
 app.use(async (req, res, next) => {
-  // Skip database check for health endpoint
-  if (req.path === "/api/health") {
+  // Skip database check for health and metrics endpoints
+  if (req.path === "/api/health" || req.path === "/api/metrics") {
     return next();
   }
 
@@ -153,10 +183,37 @@ app.use("*", (req, res) => {
   });
 });
 
-// Error handler
+// Error handler (must be last)
 app.use(errorHandler);
 
+/**
+ * Graceful shutdown handler
+ */
+const gracefulShutdown = async (signal) => {
+  logger.info(`${signal} signal received: closing HTTP server`);
+  
+  try {
+    // Close Redis connection
+    await closeRedis();
+    
+    // Close MongoDB connection
+    if (mongoose.connection.readyState === 1) {
+      await mongoose.connection.close();
+      logger.info('MongoDB connection closed');
+    }
+    
+    logger.info('Server shutdown completed gracefully');
+    process.exit(0);
+  } catch (error) {
+    logger.error('Error during graceful shutdown:', error);
+    process.exit(1);
+  }
+};
+
 // Process event handlers
+process.on('SIGTERM', () => gracefulShutdown('SIGTERM'));
+process.on('SIGINT', () => gracefulShutdown('SIGINT'));
+
 process.on('unhandledRejection', (reason) => {
   logger.error('Unhandled Rejection:', {
     reason: reason instanceof Error ? reason.message : reason

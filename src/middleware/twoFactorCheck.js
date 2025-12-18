@@ -2,7 +2,7 @@
 
 /**
  * Middleware to ensure user has set up 2FA before accessing protected routes.
- * 
+ *
  * - Skips 2FA routes (setup, verify, disable) and logout
  * - Assumes `req.user` is set by your auth middleware (e.g., JWT verification)
  */
@@ -15,9 +15,14 @@ export const checkTwoFactorSetup = (req, res, next) => {
   const path = req.path.toLowerCase();
 
   // Exclude routes related to authentication or 2FA setup
-  const excludedRoutes = ['/2fa', '/auth/logout', '/auth/login', '/auth/register'];
+  const excludedRoutes = [
+    "/2fa",
+    "/auth/logout",
+    "/auth/login",
+    "/auth/register",
+  ];
 
-  if (excludedRoutes.some(route => path.includes(route))) {
+  if (excludedRoutes.some((route) => path.includes(route))) {
     return next();
   }
 
@@ -26,7 +31,7 @@ export const checkTwoFactorSetup = (req, res, next) => {
     return res.status(200).json({
       success: true,
       requiresTwoFactorSetup: true,
-      message: 'Please set up two-factor authentication for enhanced security.'
+      message: "Please set up two-factor authentication for enhanced security.",
     });
   }
 
