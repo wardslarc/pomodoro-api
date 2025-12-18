@@ -1,12 +1,23 @@
-import { body, validationResult } from 'express-validator';
+import { body, validationResult, query, param } from 'express-validator';
+import logger from '../utils/logger.js';
 
+/**
+ * Middleware to handle validation errors with detailed logging
+ */
 const handleValidationErrors = (req, res, next) => {
   const errors = validationResult(req);
   if (!errors.isEmpty()) {
     const errorMessages = errors.array().map(error => ({
       field: error.param,
-      message: error.msg
+      message: error.msg,
+      value: error.value
     }));
+
+    logger.warn('Validation error', {
+      path: req.path,
+      method: req.method,
+      errors: errorMessages
+    });
 
     return res.status(400).json({
       success: false,
