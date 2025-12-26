@@ -2,6 +2,7 @@ import express from 'express';
 import Post from '../models/Post.js';
 import Reflection from '../models/Reflection.js';
 import logger from '../utils/logger.js';
+import { getUserId, compareUserIds } from '../utils/userUtils.js';
 
 const router = express.Router();
 
